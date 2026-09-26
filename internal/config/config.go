@@ -35,6 +35,7 @@ type Zone struct {
 	ID       int             `yaml:"id"`
 	Name     string          `yaml:"name"`
 	Mark     int             `yaml:"mark"`
+	Subnet   string          `yaml:"subnet"` // CIDR, e.g. "10.20.2.0/24" — schema §8 zones.subnet
 	Internet bool            `yaml:"internet"`
 	LANAllow []LANAllowEntry `yaml:"lan_allow"`
 }
@@ -124,10 +125,12 @@ func Default() *Config {
 		Profile: "cafe",
 		WAN:     WANConfig{Mode: "pppoe"},
 		Zones: []Zone{
-			{ID: 0, Name: "waiting", Mark: 0x00, Internet: false},
-			{ID: 1, Name: "admin", Mark: 0x01, Internet: true},
-			{ID: 2, Name: "pos", Mark: 0x02, Internet: true},
-			{ID: 3, Name: "guest", Mark: 0x03, Internet: true},
+			// Subnets §4.1 interface plan (waiting uses the router itself,
+			// 10.20.99.1, as its gateway per ERR-01).
+			{ID: 0, Name: "waiting", Mark: 0x00, Subnet: "10.20.99.0/24", Internet: false},
+			{ID: 1, Name: "admin", Mark: 0x01, Subnet: "10.20.1.0/24", Internet: true},
+			{ID: 2, Name: "pos", Mark: 0x02, Subnet: "10.20.2.0/24", Internet: true},
+			{ID: 3, Name: "guest", Mark: 0x03, Subnet: "10.20.3.0/24", Internet: true},
 		},
 		SSIDs: []SSID{
 			{BSS: "wlan0", SSID: "Staff", Bridge: "br-lan"},

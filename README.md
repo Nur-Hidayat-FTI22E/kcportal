@@ -4,7 +4,26 @@ Implementasi bertahap dari `kotacloud-portal-software-design.md`
 (SDD-Design v0.1). Lihat `docs/ROADMAP.md` untuk pembagian milestone dan
 gap yang perlu keputusanmu sebelum lanjut ke M1.
 
-## Status: M0 — fondasi
+## Status: M0 selesai — M1 berjalan (generator ruleset nftables)
+
+**Baru (M1): `internal/net/nft`** — generator ruleset `kcp_zones`/
+`kcp_filter`/`kcp_portal`/`kcp_nat`/`kcp_l2` (§4.3) dari desired state
+(`Plan`), divalidasi `nft -c -f` lalu dipasang atomik `nft -f`
+(DD-04, **tanpa** `flush ruleset`), fail-closed (NFR-REL-04): kalau
+`nft -c` menolak, ruleset lama tetap jalan. Output golden-file
+diverifikasi parser `nft` asli.
+
+**Baru (M1): pipeline state.db → Plan → nft** — `internal/reconcile`
+adalah Handler nyata state actor: setiap Command (ApproveDevice /
+AuthorizeGuest / RevokeGuest) menulis ke state.db dulu (PD-3: satu
+penulis), lalu Plan dibangun ulang dari `store.LoadPlan` dan ruleset
+baru di-render + di-apply. Startup melakukan `Sync` awal, dan goroutine
+`drift-reapply` mengulang setiap 30 detik (catatan §4.3). Zona di-seed
+dari config saat boot (`store.EnsureSeedZones`, zona Waiting virtual —
+`devices.state`, bukan baris, sesuai CHECK skema asli). Flag baru:
+`-nft-dir` (tmpfs PD-4), `-setup` (DD-15), `-dev` sekarang benar-benar
+tanpa sentuhan kernel (nft -c pun butuh CAP_NET_ADMIN untuk cache
+netlink-nya).
 
 **Bisa dikompilasi & di-vet tanpa dependency eksternal apa pun**
 (`go build ./internal/core/... ./internal/net/netctl/... ./internal/supervisor/...`):
