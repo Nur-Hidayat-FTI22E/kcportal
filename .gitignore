@@ -1,0 +1,15 @@
+# Build artifacts
+/kcportald
+/kcp-server
+
+# Runtime state (never commit device data)
+*.db
+*.db-shm
+*.db-wal
+
+# Local config (per-device; falls back to built-in defaults, DD-15)
+app.yaml
+
+# Go
+*.test
+*.out

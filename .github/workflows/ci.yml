@@ -1,0 +1,61 @@
+# CI for kcportald (M0 skeleton): build + vet + race-tested unit tests.
+# The race detector needs a C toolchain; ubuntu-latest ships gcc, and the
+# modernc.org/sqlite driver is pure Go, so no cross-compilation setup yet.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: build · vet · test (go ${{ matrix.go }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        go: ["stable", "oldstable"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go ${{ matrix.go }}
+        uses: actions/setup-go@v7
+        with:
+          go-version: ${{ matrix.go }}
+          cache: true
+
+      - name: Verify go.mod is tidy
+        run: |
+          go mod tidy
+          if ! git diff --exit-code -- go.mod go.sum; then
+            echo "::error::go.mod/go.sum out of date — run 'go mod tidy' and commit the result"
+            exit 1
+          fi
+
+      - name: gofmt check
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "::error::files not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test (race detector)
+        run: go test ./... -count=1 -race -timeout 120s
+
+      - name: Build kcportald binary (smoke)
+        run: go build -o /tmp/kcportald ./cmd/kcportald
