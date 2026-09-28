@@ -1,0 +1,29 @@
+# dnsmasq-kcp.service — the KotaCloud dnsmasq instance bound to the
+# generated config (kcportald renders /run/kcportal/dnsmasq/ at boot).
+# Deliberately NOT the distro's dnsmasq.service: that one reads
+# /etc/dnsmasq.d and would fight our rendered view of state.db (§4.5).
+# Mask/disable dnsmasq.service before enabling this unit.
+
+[Unit]
+Description=dnsmasq for KotaCloud Portal (rendered config)
+Requisite=kcportald.service
+After=kcportald.service
+PartOf=kcportald.service
+
+[Service]
+Type=simple
+ExecStartPre=/bin/sh -c 'test -f /run/kcportal/dnsmasq/dnsmasq.conf'
+ExecStart=/usr/sbin/dnsmasq --keep-in-foreground --no-daemon --conf-file=/run/kcportal/dnsmasq/dnsmasq.conf
+ExecReload=/bin/sh -c 'pkill -HUP -x dnsmasq'
+Restart=always
+RestartSec=2
+
+# Lease hooks exec /usr/lib/kcportal/dhcp-hook which connects to
+# kcportald's hook.sock; binding :53/:67/:80 needs nothing beyond root
+# defaults. leases live on tmpfs (P-06).
+ProtectSystem=strict
+ReadWritePaths=/run/kcportal
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

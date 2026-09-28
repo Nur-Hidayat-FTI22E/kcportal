@@ -69,6 +69,21 @@ type Uplinks struct {
 // Plan is the complete desired state rendered into kcp.nft.
 type Plan struct {
 	SetupMode bool // DD-15: br-lan gets mark 0x01 instead of mac_zone lookup
+	// SetupMgmtIface names the setup-mode management plane that classify
+	// stamps 0x01 (DD-15 spirit: the operator's own plane stays admin).
+	// Empty falls back to LANBridge — see MgmtIface.
+	SetupMgmtIface string
+
+	// MgmtIface resolves the classify view's management plane: the
+	// explicit SetupMgmtIface when set, otherwise LANBridge.
+	MgmtIface string
+
+	// MgmtV4 is the management subnet (CIDR) accepted at the top of the
+	// input chain, BEFORE the uplink jump. Needed when the mgmt plane
+	// shares the uplink interface (single-cable lab: KCP_WAN_IFACE=eth0
+	// AND SSH over eth0) — without it, input_wan's drop eats the
+	// operator's own SSH (observed E2E 2026-09-28). Empty = no rule.
+	MgmtV4 string
 
 	Uplinks Uplinks
 
@@ -112,6 +127,10 @@ type Plan struct {
 func (p *Plan) Validate() error {
 	if p.GuestBridge == "" || p.LANBridge == "" {
 		return fmt.Errorf("nft: GuestBridge and LANBridge are required")
+	}
+	p.MgmtIface = p.LANBridge
+	if p.SetupMode && p.SetupMgmtIface != "" {
+		p.MgmtIface = p.SetupMgmtIface
 	}
 	if p.GuestBridge == p.LANBridge {
 		return fmt.Errorf("nft: GuestBridge and LANBridge must differ (DD-01 fixed pairing)")

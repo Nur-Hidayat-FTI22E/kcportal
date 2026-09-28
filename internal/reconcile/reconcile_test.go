@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -17,18 +18,37 @@ import (
 
 // stubApplier records every ruleset handed to Apply; it stands in for
 // nft.Applier so tests exercise the full command -> db -> Plan -> render
-// pipeline without a kernel.
+// pipeline without a kernel. Goroutine-safe: confirm-rollbacks fire on
+// the manager's timer goroutine.
 type stubApplier struct {
+	mu       sync.Mutex
 	rulesets [][]byte
 	fail     error // when set, Apply returns it (simulating nft -c rejection)
 }
 
 func (s *stubApplier) Apply(_ context.Context, rs []byte) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.fail != nil {
 		return "", s.fail
 	}
 	s.rulesets = append(s.rulesets, append([]byte(nil), rs...))
 	return "/run/kcportal/kcp.nft", nil
+}
+
+func (s *stubApplier) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.rulesets)
+}
+
+func (s *stubApplier) last() []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.rulesets) == 0 {
+		return nil
+	}
+	return s.rulesets[len(s.rulesets)-1]
 }
 
 func newTestHandler(t *testing.T) (*Handler, *stubApplier, core.Command) {

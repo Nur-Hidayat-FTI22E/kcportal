@@ -1,6 +1,7 @@
 # Build artifacts
 /kcportald
 /kcp-server
+/build/
 
 # Runtime state (never commit device data)
 *.db

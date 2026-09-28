@@ -3,6 +3,7 @@ package store
 import (
 	"crypto/sha256"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/netip"
@@ -84,13 +85,23 @@ type Plan struct {
 	Bindings []Lease
 }
 
-// Zone mirrors the zones row (§8).
+// Zone mirrors the zones row (§8), including the policy columns the
+// state actor owns (PutZonePolicy writes them; render reads them).
 type Zone struct {
 	ID       int
 	Name     string
 	Subnet   string
 	Mark     uint32
 	Internet bool
+	VPN      string     // vpn_policy: off | preferred | required
+	LANAllow []LANAllow // parsed from the lan_allow JSON column
+}
+
+// LANAllow is one inter-zone exception (store-level shape).
+type LANAllow struct {
+	DstIP string `json:"dst_ip"`
+	Proto string `json:"proto"`
+	Port  int    `json:"port"`
 }
 
 // Device is an approved device that must appear in the mac_zone map.
@@ -118,7 +129,7 @@ type Lease struct {
 }
 
 func loadZones(db *sql.DB) ([]Zone, error) {
-	rows, err := db.Query(`SELECT id, name, subnet, internet FROM zones ORDER BY id`)
+	rows, err := db.Query(`SELECT id, name, subnet, internet, vpn_policy, lan_allow FROM zones ORDER BY id`)
 	if err != nil {
 		return nil, fmt.Errorf("store: load zones: %w", err)
 	}
@@ -127,13 +138,49 @@ func loadZones(db *sql.DB) ([]Zone, error) {
 	for rows.Next() {
 		var z Zone
 		var internet int
-		if err := rows.Scan(&z.ID, &z.Name, &z.Subnet, &internet); err != nil {
+		var lanAllow string
+		if err := rows.Scan(&z.ID, &z.Name, &z.Subnet, &internet, &z.VPN, &lanAllow); err != nil {
 			return nil, fmt.Errorf("store: scan zone: %w", err)
 		}
 		z.Internet = internet != 0
+		if lanAllow != "" && lanAllow != "[]" {
+			if err := json.Unmarshal([]byte(lanAllow), &z.LANAllow); err != nil {
+				return nil, fmt.Errorf("store: zone %d lan_allow: %w", z.ID, err)
+			}
+		}
 		out = append(out, z)
 	}
 	return out, rows.Err()
+}
+
+// PutZonePolicy writes the policy columns of one zone (core.PutZonePolicy
+// handler; the M3 REST admin calls the same path). LANAllow rules are
+// stored as the JSON the §8 schema's lan_allow column wants.
+func PutZonePolicy(db *sql.DB, zoneID int, internet bool, vpnRequired bool, allows []LANAllow, actor string, now time.Time) error {
+	vpn := "off"
+	if vpnRequired {
+		vpn = "required"
+	}
+	jsonAllows, err := json.Marshal(allows)
+	if err != nil {
+		return fmt.Errorf("store: zone %d policy: %w", zoneID, err)
+	}
+	res, err := db.Exec(`UPDATE zones SET internet = ?, vpn_policy = ?, lan_allow = ? WHERE id = ?`,
+		boolToInt(internet), vpn, string(jsonAllows), zoneID)
+	if err != nil {
+		return fmt.Errorf("store: zone %d policy: %w", zoneID, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("store: zone %d policy: %w", zoneID, ErrNotFound)
+	}
+	return recordAudit(db, actor, "zone.policy", fmt.Sprintf("zone:%d", zoneID), string(jsonAllows), now)
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 func loadApprovedDevices(db *sql.DB) ([]Device, error) {

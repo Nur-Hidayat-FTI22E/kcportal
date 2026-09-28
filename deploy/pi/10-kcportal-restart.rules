@@ -1,0 +1,34 @@
+// 10-kcportal-restart.rules — allow the unprivileged kcportal daemon to
+// restart exactly the two units whose config it renders (M2 wiring).
+//
+// kcportald owns hostapd.conf and dnsmasq.conf (tmpfs, rendered from
+// state.db). When the renderer detects drift it applies the change by
+// restarting the owning unit; without this rule systemctl would refuse
+// (polkit org.freedesktop.systemd1.manage-units defaults to auth_admin
+// for non-root). The rule is narrow on purpose: unit names are pinned
+// to the two rendered units, action is restart only, and it applies
+// solely to the kcportal system user — the daemon cannot stop, mask,
+// reload, or edit anything else.
+//
+// Install: sudo cp 10-kcportal-restart.rules /etc/polkit-1/rules.d/ &&
+//          sudo systemctl restart polkit
+//
+// Restart (not SIGHUP) is deliberate: hostapd has no config reload, and
+// dnsmasq pool changes need a restart (hosts.d rides inotify instead).
+// NOTE: the file MUST be named *.rules — polkitd ignores everything else
+// in rules.d (a .conf here was silently skipped; verified on the Pi via
+// polkitd journal "Loading rules from directory ...").
+
+polkit.addRule(function(action, subject) {
+    if (action.id != "org.freedesktop.systemd1.manage-units" ||
+        subject.user != "kcportal") {
+        return;
+    }
+    var unit = action.lookup("unit");
+    if (unit == "hostapd@kcportald.service" || unit == "dnsmasq-kcp.service") {
+        if (action.lookup("verb") == "restart") {
+            return polkit.Result.YES;
+        }
+    }
+    return polkit.Result.NOT_HANDLED;
+});

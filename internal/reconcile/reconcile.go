@@ -12,9 +12,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
+	"os"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"kotacloud-portal/internal/config"
+	"kotacloud-portal/internal/confirm"
 	"kotacloud-portal/internal/core"
 	"kotacloud-portal/internal/net/nft"
 	"kotacloud-portal/internal/store"
@@ -33,7 +38,20 @@ type Handler struct {
 	Apply Applier // the nft.Applier, or a test stub
 	Log   *slog.Logger
 	Now   func() time.Time // injectable clock for tests
-	Setup bool             // DD-15 setup mode: br-lan is the admin plane, no mac_zone entries
+	Setup bool             // DD-15 setup mode: the mgmt plane is admin, no mac_zone entries
+	// SetupMgmtIface names the setup-mode management plane stamped 0x01
+	// by classify (lab: eth0 keeps SSH alive; production default br-lan).
+	SetupMgmtIface string
+	Confirm        *confirm.Manager // commit-confirm for risky changes (ADR-006); nil = no risky handling
+
+	// NeighRev, when wired (cmd/kcportald), increments on every
+	// successful ruleset apply; main.go's netlink subscription bumps the
+	// same counter on RTM_NEWNEIGH pushes, so downstream (the M3 Bouncer,
+	// cache busting) can tell "the ruleset moved" from "nothing
+	// happened". PD-4: derived state — deliberately RAM-only.
+	NeighRev *atomic.Uint64
+
+	lastGood []byte // last successfully applied ruleset — the snapshot source
 }
 
 // NewHandler builds a Handler; applier may be nil when the caller wires
@@ -51,6 +69,12 @@ func NewHandler(db *sql.DB, cfg *config.Config, applier Applier, log *slog.Logge
 // mutation — state.db is the source of truth (§4.3); the periodic
 // re-apply loop converges the kernel once the failure clears. Fail-closed
 // (NFR-REL-04) means the OLD ruleset keeps running meanwhile.
+//
+// Risky commands (ADR-006: anything that can strand the admin — zone
+// policy on the admin's own zone, WAN mode) additionally start a
+// commit-confirm trial: the change goes live but Result.Deadline is set
+// (IF-02), and the confirm.Manager rolls back to the last-good snapshot
+// unless the admin confirms in time.
 func (h *Handler) Handle(ctx context.Context, cmd core.Command) core.Result {
 	if h.Apply == nil {
 		return core.Result{Err: fmt.Errorf("reconcile: no applier wired (bug: handler not initialised)")}
@@ -74,8 +98,35 @@ func (h *Handler) Handle(ctx context.Context, cmd core.Command) core.Result {
 		return core.Result{Err: err}
 	}
 
+	changeID := fmt.Sprintf("%s@%d", cmd.Name(), h.Now().Unix())
 	h.Log.Info("ruleset applied", "cmd", cmd.Name(), "path", path)
-	return core.Result{ChangeID: fmt.Sprintf("%s@%d", cmd.Name(), h.Now().Unix())}
+
+	// ADR-006: risky changes ride the confirm window before they are
+	// trusted. The Deadline in the Result is what the GUI shows.
+	if reason, risky := h.risky(cmd); risky && h.Confirm != nil {
+		deadline, cerr := h.Confirm.Begin(ctx, changeID, reason, h.lastGood)
+		if cerr != nil {
+			return core.Result{Err: fmt.Errorf("reconcile: confirm begin: %w", cerr)}
+		}
+		return core.Result{ChangeID: changeID, Deadline: deadline}
+	}
+	return core.Result{ChangeID: changeID}
+}
+
+// risky implements the ADR-006 list: changes able to strand the admin
+// who requested them. M1: zone policy (its forward rules can cut the
+// admin's own zone off the mgmt listener). WAN mode and Wi-Fi
+// band/SSID arrive with their milestones and join this list.
+func (h *Handler) risky(cmd core.Command) (string, bool) {
+	switch c := cmd.(type) {
+	case core.PutZonePolicy:
+		if c.ZoneID == 1 { // the Admin zone carries the mgmt listener (§2.4)
+			return "zone policy change on the Admin zone (mgmt listener reachability)", true
+		}
+		return "", false
+	default:
+		return "", false
+	}
 }
 
 // Sync re-applies desired state without a command — the startup path and
@@ -99,6 +150,15 @@ func (h *Handler) applyCommand(cmd core.Command) error {
 		return store.CloseGuestSessions(h.DB, c.MAC, now) // authed_guests drops the MAC on the next Plan build
 	case core.AuthorizeGuest:
 		return store.StartGuestSession(h.DB, c.MAC, c.TTL, now)
+	case core.PutZonePolicy:
+		// M1: the policy columns live in state.db (§8 zones), so the
+		// write path exists even though the REST admin (M3) is what will
+		// call it through the GUI.
+		allows := make([]store.LANAllow, 0, len(c.LANAllow))
+		for _, a := range c.LANAllow {
+			allows = append(allows, store.LANAllow{DstIP: a.DstIP, Proto: a.Proto, Port: a.Port})
+		}
+		return store.PutZonePolicy(h.DB, c.ZoneID, c.Internet, c.VPNRequired, allows, "admin", now)
 	default:
 		return fmt.Errorf("reconcile: no state mutation wired for %s yet", cmd.Name())
 	}
@@ -129,6 +189,10 @@ func (h *Handler) reconcile(ctx context.Context) (string, error) {
 	if err != nil {
 		return path, err // pass *nft.CheckError through untouched for errors.As
 	}
+	h.lastGood = append(h.lastGood[:0], ruleset...) // snapshot source for commit-confirm
+	if h.NeighRev != nil {
+		h.NeighRev.Add(1)
+	}
 	return path, nil
 }
 
@@ -146,7 +210,16 @@ func (h *Handler) buildPlan(snap *store.Plan) (*nft.Plan, error) {
 			Name:     z.Name,
 			Mark:     mark,
 			Internet: z.Internet,
+			VPN:      z.VPN == "required",
 			LANAllow: h.lanAllowsFor(z.ID),
+		}
+		// DB-stored lan_allow (PutZonePolicy) wins over config; config is
+		// only the boot default until the M3 admin writes the row.
+		if len(z.LANAllow) > 0 {
+			nz.LANAllow = nil
+			for _, a := range z.LANAllow {
+				nz.LANAllow = append(nz.LANAllow, nft.LANAllow{DstIP: a.DstIP, Proto: a.Proto, Port: uint16(a.Port)})
+			}
 		}
 		zones = append(zones, nz)
 	}
@@ -154,6 +227,8 @@ func (h *Handler) buildPlan(snap *store.Plan) (*nft.Plan, error) {
 	plan := &nft.Plan{
 		Now:            h.Now(), // one clock for expiry math across the pipeline
 		SetupMode:      h.Setup,
+		SetupMgmtIface: h.SetupMgmtIface,
+		MgmtV4:         h.mgmtV4(),
 		Uplinks:        h.uplinks(),
 		Zones:          zones,
 		GuestBridge:    "br-guest", // DD-01 fixed pairing
@@ -165,7 +240,7 @@ func (h *Handler) buildPlan(snap *store.Plan) (*nft.Plan, error) {
 		GuestDownKbps:  h.Cfg.Portal.DownlinkKbps,
 	}
 
-	if !h.Setup { // DD-15: no device-derived state in setup mode
+	if !h.Setup { // DD-15: no device-derived identity state in setup mode
 		for _, d := range snap.Devices {
 			if d.Expires != nil && d.Expires.Before(h.Now()) {
 				continue // expired approval drops out until the M1 watcher flips devices.state
@@ -176,9 +251,6 @@ func (h *Handler) buildPlan(snap *store.Plan) (*nft.Plan, error) {
 			}
 			plan.MACZones = append(plan.MACZones, nft.MACZone{MAC: d.MAC, ZoneID: d.ZoneID, ZoneMark: mark})
 		}
-		for _, g := range snap.Guests {
-			plan.Guests = append(plan.Guests, nft.Guest{MAC: g.MAC, Expires: g.ExpiresAt})
-		}
 		for _, l := range snap.Bindings {
 			var expires time.Time
 			if l.Expires != nil {
@@ -187,7 +259,45 @@ func (h *Handler) buildPlan(snap *store.Plan) (*nft.Plan, error) {
 			plan.Bindings = append(plan.Bindings, nft.Binding{MAC: l.MAC, IP: l.IP, Expires: expires})
 		}
 	}
+	// Guest sessions render in EVERY posture: they are the portal's own
+	// runtime authorization (granted explicitly via the actor), not
+	// learned identity — DD-15's setup mode skips mac_zone/bindings, but
+	// the authed_guests path must stay testable end-to-end while the
+	// lab runs -setup (observed: sessions granted but the set stayed
+	// empty, breaking the whole approve flow).
+	for _, g := range snap.Guests {
+		plan.Guests = append(plan.Guests, nft.Guest{MAC: g.MAC, Expires: g.ExpiresAt})
+	}
 	return plan, nil
+}
+
+// mgmtV4 derives the management subnet (first IPv4 addr of the setup
+// mgmt iface, as a /24) for the anti-lockout input rule. KCP_MGMT_V4
+// overrides (e.g. "192.168.100.0/24"); empty disables the rule. The
+// rule is only emitted when an explicit mgmt iface is configured —
+// DD-15's posture is exactly the lab case needing it.
+func (h *Handler) mgmtV4() string {
+	if env := os.Getenv("KCP_MGMT_V4"); env != "" {
+		return strings.TrimSpace(env)
+	}
+	if h.SetupMgmtIface == "" {
+		return ""
+	}
+	ifc, err := net.InterfaceByName(h.SetupMgmtIface)
+	if err != nil {
+		return ""
+	}
+	addrs, err := ifc.Addrs()
+	if err != nil {
+		return ""
+	}
+	for _, a := range addrs {
+		if ipn, ok := a.(*net.IPNet); ok && ipn.IP.To4() != nil {
+			netIP := ipn.IP.To4().Mask(net.CIDRMask(24, 32)) // the SUBNET, not the host addr
+			return fmt.Sprintf("%s/24", netIP.String())
+		}
+	}
+	return ""
 }
 
 // lanAllowsFor resolves zone lan_allow from config by zone id (config is
@@ -210,6 +320,23 @@ func (h *Handler) lanAllowsFor(zoneID int) []nft.LANAllow {
 // tunnels arrive with the VPN milestone; the kill-switch sets simply
 // stay empty until then.
 func (h *Handler) uplinks() nft.Uplinks {
+	// KCP_WAN_IFACE overrides the §4.1 derivation (comma-separated): the
+	// lab Pi rides its eth0 as the uplink while wan0 does not exist —
+	// without this the forward-accept/masquerade rules target an
+	// interface that will never carry traffic (observed E2E: guests got
+	// DHCP + captive page but no internet).
+	if env := strings.TrimSpace(os.Getenv("KCP_WAN_IFACE")); env != "" {
+		parts := strings.Split(env, ",")
+		wans := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if p = strings.TrimSpace(p); p != "" {
+				wans = append(wans, p)
+			}
+		}
+		if len(wans) > 0 {
+			return nft.Uplinks{WAN: wans}
+		}
+	}
 	switch h.Cfg.WAN.Mode {
 	case "pppoe":
 		return nft.Uplinks{WAN: []string{"ppp0"}}

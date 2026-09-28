@@ -1,0 +1,54 @@
+# kcportald — the single portal daemon (SDD §2.5) on the Raspberry Pi 5.
+# Install: sudo cp kcportald.service /etc/systemd/system/
+#          sudo systemctl daemon-reload && sudo systemctl enable --now kcportald
+#
+# NOTE: no WatchdogSec here yet — the ROADMAP wants it, but it requires the
+# daemon to answer sd_notify WATCHDOG=1 pings; kcportald does not speak
+# sd_notify yet, so enabling it would have systemd kill a healthy daemon
+# every 30 s. Revisit with the Type=notify work.
+
+[Unit]
+Description=KotaCloud Portal daemon (kcportald)
+Wants=network-online.target
+After=network-online.target
+# nftables ruleset is managed exclusively by kcportald (DD-04); no
+# dependency on nftables.service — its unit stays disabled to avoid two
+# writers on the same ruleset.
+
+[Service]
+Type=simple
+User=kcportal
+Group=kcportal
+StateDirectory=kcportal
+RuntimeDirectory=kcportal
+RuntimeDirectoryMode=0755
+ExecStart=/usr/local/bin/kcportald \
+  -config /etc/kcportal/app.yaml \
+  -state /var/lib/kcportal/state.db \
+  -nft-dir /run/kcportal
+Restart=always
+RestartSec=3
+
+# rtnetlink neighbor dumps + `nft -c/-f` need CAP_NET_ADMIN; conntrack -D
+# needs CAP_NET_RAW (tool present = used, absent = skipped silently).
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+NoNewPrivileges=yes
+
+# Moderate hardening: everything the daemon touches is whitelisted
+# (runtime + state dirs above, /etc/kcportal read-only).
+ProtectSystem=strict
+ReadOnlyPaths=/etc/kcportal
+ProtectHome=yes
+PrivateTmp=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+ProtectKernelTunables=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+
+# Pi budget (ROADMAP): stay small; the Go daemon idles at ~20-40 MB.
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target

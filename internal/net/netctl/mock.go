@@ -17,6 +17,7 @@ type Mock struct {
 	authed    map[string]time.Time        // MAC string -> expiry
 	neighbors map[string]net.HardwareAddr // "iface|ip" -> MAC
 	bindings  map[string]string           // MAC string -> IP string
+	live      []liveNeighbor              // kernel neighbor-table emulation
 }
 
 // NewMock returns a ready-to-use Mock with everything empty.
@@ -95,4 +96,44 @@ func (m *Mock) IsAuthorized(mac net.HardwareAddr) bool {
 	defer m.mu.Unlock()
 	exp, ok := m.authed[mac.String()]
 	return ok && exp.After(time.Now())
+}
+
+// --- neighbor-table emulation (DD-03/DD-10 live view) ---
+
+// liveNeighbor is one kernel neighbor-table entry as the real netlink
+// watcher will report it.
+type liveNeighbor struct {
+	iface string
+	ip    netip.Addr
+	mac   net.HardwareAddr
+	seen  time.Time
+}
+
+// SeedNeighborLive adds a live neighbor-table entry (what the kernel
+// learned on the wire), as opposed to SeedNeighbor which fakes one
+// lookup. The Bouncer's snapshot dump reads these.
+func (m *Mock) SeedNeighborLive(iface string, ip netip.Addr, mac net.HardwareAddr) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.live = append(m.live, liveNeighbor{iface: iface, ip: ip, mac: mac, seen: time.Now()})
+}
+
+// ListLiveNeighbors returns the live table snapshot, newest first.
+func (m *Mock) ListLiveNeighbors() []LiveNeighbor {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]LiveNeighbor, 0, len(m.live))
+	for _, n := range m.live {
+		out = append(out, LiveNeighbor{Interface: n.iface, IP: n.ip, MAC: n.mac.String(), Seen: n.seen})
+	}
+	return out
+}
+
+// LiveNeighbor is the exported snapshot row (matches the neighbors
+// package's Entry shape without importing it).
+type LiveNeighbor struct {
+	Interface string
+	IP        netip.Addr
+	MAC       string
+	Seen      time.Time
 }

@@ -19,7 +19,7 @@ table inet kcp_zones {
     iifname @tunnel_if return
     meta mark set 0x00
     iifname "br-guest" meta mark set 0x03               # DD-01: identity = segment (kept in setup mode so the portal still works)
-    iifname "br-lan" meta mark set 0x01                 # setup mode (DD-15): no state.db yet, br-lan is the admin plane
+    iifname "br-lan" meta mark set 0x01                 # setup mode (DD-15): the operator's plane is admin
     meta mark set iifname map @vlan_zone
     # anti-spoof binding (SEC-012); 0.0.0.0 = DHCP discover, :: / fe80::/10 = DAD/ND
     iifname { "br-lan", "br-guest" } ether type ip  ip saddr != 0.0.0.0 ether saddr . ip saddr != @mac_ip4 meta mark set 0x00

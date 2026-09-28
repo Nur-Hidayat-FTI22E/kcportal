@@ -236,7 +236,7 @@ table inet kcp_zones {
     meta mark set 0x00
     iifname "{{ .GuestBridge }}" meta mark set 0x03               # DD-01: identity = segment (kept in setup mode so the portal still works)
 {{- if .SetupMode }}
-    iifname "{{ .LANBridge }}" meta mark set 0x01                 # setup mode (DD-15): no state.db yet, br-lan is the admin plane
+    iifname "{{ .MgmtIface }}" meta mark set 0x01                 # setup mode (DD-15): the operator's plane is admin
 {{- else }}
     iifname "{{ .LANBridge }}" meta mark set ether saddr map @mac_zone   # no entry -> stays 0x00 (Waiting)
 {{- end }}
@@ -302,6 +302,12 @@ table inet kcp_filter {
     ct state established,related accept
     ct state invalid drop
     iif "lo" accept
+{{- if .MgmtV4 }}
+    # DD-15 anti-lockout: the mgmt subnet rides the uplink iface in the
+    # lab (single cable), so it must be accepted BEFORE the WAN jump —
+    # input_wan drops everything.
+    ip saddr {{ .MgmtV4 }} accept
+{{- end }}
     iifname @uplink_if jump input_wan
     iifname @tunnel_if drop
     meta mark 0x00 jump input_waiting
