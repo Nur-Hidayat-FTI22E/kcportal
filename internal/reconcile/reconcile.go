@@ -149,7 +149,33 @@ func (h *Handler) applyCommand(cmd core.Command) error {
 	case core.RevokeGuest:
 		return store.CloseGuestSessions(h.DB, c.MAC, now) // authed_guests drops the MAC on the next Plan build
 	case core.AuthorizeGuest:
-		return store.StartGuestSession(h.DB, c.MAC, c.TTL, now)
+		// M3 portal path: carry the consent record into guest_sessions
+		// (FR-CPT-002) in the same single-writer step; empty metadata
+		// fields keep the M2 call sites (ops CLI, tests) byte-identical.
+		ttl := c.TTL
+		if c.Voucher != "" {
+			// Voucher consumption is part of the same writer step: its
+			// duration replaces TTL and a bad code fails the command
+			// (the portal maps store.ErrNotFound to a 4xx message).
+			dur, err := store.RedeemVoucher(h.DB, c.Voucher, now)
+			if err != nil {
+				return err
+			}
+			ttl = dur
+		}
+		if c.SessionID == "" && !c.Marketing && c.TenantID == "" && c.Terms == "" {
+			return store.StartGuestSession(h.DB, c.MAC, ttl, now)
+		}
+		return store.StartGuestSessionWithMeta(h.DB, store.SessionMeta{
+			MAC:        c.MAC,
+			SessionID:  c.SessionID,
+			TenantID:   c.TenantID,
+			Marketing:  c.Marketing,
+			Payload:    c.Payload,
+			Terms:      c.Terms,
+			Lang:       c.Lang,
+			Expiration: now.Add(ttl),
+		}, now)
 	case core.PutZonePolicy:
 		// M1: the policy columns live in state.db (§8 zones), so the
 		// write path exists even though the REST admin (M3) is what will

@@ -58,11 +58,19 @@ Sesuaikan urutannya kapan saja — ini bukan kutipan dari §12 aslinya.
 
 ## M3 — Portal tamu + REST admin (§5, §7.1 IF-01, §7.2)
 
-- `portal-edge`: identifikasi tamu dari neighbor table (DD-10),
-  `AuthorizeGuest`/`RevokeGuest`, voucher, sesi (`guest_sessions`, §8).
-- Endpoint `/api/v1/*` §7.2 (setup wizard, `/network/wan`,
-  `/changes/pending`, `/portal/admin/*`, `/audit`).
-- `web/portal` + `web/admin` (React, statis, di-embed).
+**Status: inti jalan (2026-09-29).**
+
+- [x] `portal-edge` (internal/listen/portaledge): identifikasi tamu
+  dari neighbor table (DD-10), consent + voucher → `AuthorizeGuest`
+  (metadata consent + konsumsi voucher dalam satu langkah actor),
+  sesi (`guest_sessions`, §8), `/state` polling.
+- [x] `internal/api`: `/api/v1/devices|guests|zones|changes|audit|vouchers`
+  dengan bearer token (settings, tampil via `-api-token`).
+- [ ] Endpoint setup wizard + `/network/wan` (butuh runtimecfg WAN).
+- [ ] `web/portal` + `web/admin` (React, statis, di-embed) — halaman
+  Go saat ini fungsional tapi minimal.
+- [ ] Sync pemasaran ke kcp-server (client_ref) — M5 `portal.sync`,
+  pseudonym sudah dicetak di sini.
 
 ## M4 — PoS App Pack (§7.1 IF-03, §6.5)
 

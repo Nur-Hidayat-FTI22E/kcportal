@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -20,9 +21,11 @@ import (
 
 	"sync/atomic"
 
+	"kotacloud-portal/internal/api"
 	"kotacloud-portal/internal/config"
 	"kotacloud-portal/internal/confirm"
 	"kotacloud-portal/internal/core"
+	"kotacloud-portal/internal/listen/portaledge"
 	"kotacloud-portal/internal/listen/waitingdns"
 	"kotacloud-portal/internal/listen/waitinghttp"
 	"kotacloud-portal/internal/net/dhcp"
@@ -30,6 +33,7 @@ import (
 	"kotacloud-portal/internal/net/netlink"
 	"kotacloud-portal/internal/net/nft"
 	"kotacloud-portal/internal/net/wifi/hostapdctl"
+	"kotacloud-portal/internal/portal"
 	"kotacloud-portal/internal/reconcile"
 	"kotacloud-portal/internal/runtimecfg"
 	"kotacloud-portal/internal/store"
@@ -48,6 +52,8 @@ func main() {
 	approveMAC := flag.String("approve", "", "ops utility: grant a 60-minute guest session for this MAC (state.db write; the running daemon applies it within 30 s)")
 	revokeMAC := flag.String("revoke", "", "ops utility: close all guest sessions for this MAC")
 	neighDump := flag.Bool("neigh-dump", false, "dump the kernel neighbor table via rtnetlink and exit (ops/debug utility)")
+	apiAddr := flag.String("api-addr", "127.0.0.1:8083", "REST admin API listen address (§7.2; keep on the mgmt plane/loopback)")
+	printAPIToken := flag.Bool("api-token", false, "ops utility: print the admin API token (generated on first boot) and continue serving")
 	flag.Parse()
 
 	// Ops utilities that only touch state.db and exit (the actor's own
@@ -110,6 +116,24 @@ func main() {
 		}
 		fmt.Printf("# %d usable entries\n", len(rows))
 		return
+	}
+
+	// Ops: mint/print the admin API token, then continue into normal
+	// serving (the token is also loaded again inside main's wiring).
+	if *printAPIToken {
+		probe, err := store.Open(context.Background(), *statePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "open %s: %v\n", *statePath, err)
+			os.Exit(1)
+		}
+		tok, created, err := api.LoadToken(probe)
+		_ = probe.Close()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "api-token: %v\n", err)
+			os.Exit(1)
+		}
+		_ = created // first call creates + stores it; printing is the point
+		fmt.Printf("api-token: %s\n", tok)
 	}
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
@@ -309,16 +333,68 @@ func main() {
 			log.Error("waiting-dns died", "err", err)
 		}
 	})
-	// Portal-edge stub (M3 placeholder): the guest DNAT lands on
-	// 10.20.3.1:8080; serving the same info page there turns the
-	// browser's captive probe into a real page instead of a refused
-	// connection. Replaced by the real portal edge when M3 lands.
-	guestStub := waitinghttp.New("10.20.3.1:8080", deviceView, log)
-	sup.Add("portal-edge-stub", func(ctx context.Context) {
-		if err := guestStub.Run(ctx); err != nil {
-			log.Error("portal-edge-stub died", "err", err)
+	// Portal-edge (M3, §5): the guest DNAT lands on 10.20.3.1:8080 —
+	// consent form → actor AuthorizeGuest (consent row + authed_guests)
+	// → next reconcile lifts the DNAT for that MAC. nc (IF-01) supplies
+	// the IP→MAC identity; it is wired before this point in both modes.
+	mktKey, mktErr := store.GetSetting(db, "marketing_key")
+	if mktErr != nil {
+		mktKey = "" // no key = marketing sync disabled (client_ref empty)
+	}
+	psvc := portal.New(mktKey)
+	portalEdge := portaledge.New(portaledge.Config{
+		Addr:        "10.20.3.1:8080",
+		GuestBridge: "br-guest",
+		TTL:         time.Duration(cfg.Portal.SessionTTLMinutes) * time.Minute,
+	}, db, nc, actor, psvc, log)
+	sup.Add("portal-edge", func(ctx context.Context) {
+		if err := portalEdge.Run(ctx); err != nil {
+			log.Error("portal-edge died", "err", err)
 		}
 	})
+
+	// REST admin (M3, §7.2): 127.0.0.1 by default — reachability beyond
+	// loopback is the mgmt plane's business (drop-in ExecStart override
+	// or an SSH tunnel; never 0.0.0.0). Token lives in state.db settings
+	// and is shown once with -api-token.
+	apiSrv := &api.Server{DB: db, Actor: actor, Portal: psvc, Confirmer: confirmer, Log: log}
+	if tok, created, terr := api.LoadToken(db); terr != nil {
+		log.Warn("api token unavailable — admin API stays authenticated-closed", "err", terr)
+	} else {
+		apiSrv.SetToken(tok)
+		if created || *printAPIToken {
+			fmt.Printf("api-token: %s\n", tok)
+		}
+		sup.Add("api-admin", func(ctx context.Context) {
+			httpSrv := &http.Server{
+				Addr:              *apiAddr,
+				Handler:           apiSrv.Handler(),
+				ReadHeaderTimeout: 3 * time.Second,
+			}
+			errCh := make(chan error, 1)
+			ln, lerr := net.Listen("tcp", *apiAddr)
+			if lerr != nil {
+				log.Error("api-admin listen failed", "err", lerr)
+				return
+			}
+			go func() {
+				if err := httpSrv.Serve(ln); err != nil && err != http.ErrServerClosed {
+					errCh <- err
+				}
+				close(errCh)
+			}()
+			log.Info("admin api listening", "addr", ln.Addr().String())
+			select {
+			case <-ctx.Done():
+				shutCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				_ = httpSrv.Shutdown(shutCtx)
+				<-errCh
+			case err := <-errCh:
+				log.Error("admin api died", "err", err)
+			}
+		})
+	}
 
 	// Watchers (MOD-BOUNCER detection sources, DD-03): the lease hook
 	// socket (IF-05b) and the live neighbor cache. Lease events feed the

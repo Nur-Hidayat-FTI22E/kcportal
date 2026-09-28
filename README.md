@@ -4,7 +4,30 @@ Implementasi bertahap dari `kotacloud-portal-software-design.md`
 (SDD-Design v0.1). Lihat `docs/ROADMAP.md` untuk pembagian milestone dan
 gap yang perlu keputusanmu sebelum lanjut ke M1.
 
-## Status: M0–M2 tuntas — produksi Pi 5 hidup (SSID on air, ruleset terpasang, DEAUTH revoke aktif)
+## Status: M0–M2 tuntas, M3 inti jalan — produksi Pi 5 hidup (SSID on air, ruleset terpasang, DEAUTH revoke aktif)
+
+**Baru (M3 inti): portal tamu + REST admin** — tiga paket:
+
+- `internal/portal` — domain sesi tamu: pseudonym pemasaran DD-11
+  (`client_ref = hex(HMAC-SHA256(key, mac))` — MAC tak pernah keluar
+  unit), encoder payload consent deterministik, dan read model
+  `View()` yang menggabungkan devices + guest_sessions.
+- `internal/listen/portaledge` — captive portal di 10.20.3.1:8080
+  (menggantikan stub): identitas klien **hanya** dari IP sumber →
+  neighbor table (DD-10) + cross-check binding SEC-012; form consent
+  (syarat wajib, pemasaran opsional — FR-CPT-002), voucher opsional,
+  dan `/state` polling. Sesi dibuka lewat state actor
+  (`AuthorizeGuest` kini membawa metadata consent + kode voucher;
+  voucher dikonsumsi **di dalam** langkah penulis tunggal — kode
+  habis/invalid gagal tanpa membuka sesi).
+- `internal/api` — REST admin §7.2 (subset yang sudah dilayani
+  state.db): devices (list/approve/block), guests (list/revoke),
+  zones + policy (PUT zona Admin otomatis masuk commit-confirm dan
+  endpoint `/changes/pending` + `/changes/confirm` menampilkan/
+  menerima trialnya — IF-02), audit (hash chain, read-only), voucher
+  (generate/list). Auth bearer token yang di-generate sekali di
+  settings dan ditampilkan via `kcportald -api-token`; listener
+  default `127.0.0.1:8083` (buka lewat SSH tunnel / mgmt plane).
 
 **Baru (M1): `internal/net/nft`** — generator ruleset `kcp_zones`/
 `kcp_filter`/`kcp_portal`/`kcp_nat`/`kcp_l2` (§4.3) dari desired state

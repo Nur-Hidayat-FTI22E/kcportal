@@ -85,6 +85,21 @@ func (InstallApp) Name() string { return "InstallApp" }
 type AuthorizeGuest struct {
 	MAC string
 	TTL time.Duration
+
+	// Portal consent metadata (M3, FR-CPT-002/DD-11): written into the
+	// guest_sessions row by the same handler step, so the audit trail
+	// never shows an authorized session without its consent record.
+	// Empty fields keep the M0/M2 call sites valid (ops CLI approve).
+	SessionID string
+	TenantID  string
+	Marketing bool
+	Payload   string // pre-encoded (portal.EncodePayload); stored only when Marketing
+	Terms     string
+	Lang      string
+	// Voucher redeems a code INSIDE the handler step: its duration
+	// replaces TTL, and an unknown/exhausted code fails the whole
+	// command (store.ErrNotFound) — no session without a valid voucher.
+	Voucher string
 }
 
 func (AuthorizeGuest) isCommand()   {}
