@@ -194,9 +194,12 @@ func RenderHostapdSingleBSS(guestSSID string) ([]byte, error) {
 	w("ieee80211d=1")
 	w("interface=%s", radio)
 	w("driver=nl80211")
-	w("hw_mode=a")
-	w("channel=36")
-	w("ieee80211n=1") // 20 MHz: the firmware rejects 80 MHz AP (VHT) mode
+	// 2.4 GHz (hw_mode g, ch6, HT20): every phone joins it — the 5 GHz
+	// band keeps some devices off the portal entirely (observed: the
+	// test phone never associated; see README "Batasan perangkat").
+	w("hw_mode=g")
+	w("channel=6")
+	w("ieee80211n=1") // HT20: 40 MHz co-exists badly on the crowded band
 	w("wmm_enabled=1")
 	w("max_num_sta=16")
 	w("ap_max_inactivity=300")
