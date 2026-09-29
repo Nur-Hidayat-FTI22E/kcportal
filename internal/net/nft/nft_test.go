@@ -31,6 +31,10 @@ func cafePlan() *Plan {
 		WaitingHTTP:    "10.20.99.1:8081",
 		GuestUpKbps:    5000,
 		GuestDownKbps:  5000,
+		DohShield: DoHShield{
+			BootstrapIPs: DefaultDohBootstrapIPs(),
+			BlockDoT:     true,
+		},
 		Zones: []Zone{
 			{ID: 0, Name: "waiting", Mark: 0x00},
 			{ID: 1, Name: "admin", Mark: 0x01, Internet: true},
@@ -443,5 +447,53 @@ func TestApplyBoot(t *testing.T) {
 	got, _ := os.ReadFile(path)
 	if string(got) != BootRuleset {
 		t.Error("kcp-boot.nft on disk differs from the BootRuleset constant")
+	}
+}
+
+// --- DoH/DoT shield ---
+
+// The shield set must carry the default bootstrap IPs and the gate_fwd
+// drops must sit BEFORE the authed_guests exception: the venue's DNS
+// policy applies to the whole guest session, not only pre-auth.
+func TestDohShieldRendersDropsBeforeAuthException(t *testing.T) {
+	ruleset := mustRender(t, cafePlan())
+
+	if !strings.Contains(ruleset, `set doh_block4 { type ipv4_addr; elements = { "1.1.1.1", "1.0.0.1", "8.8.8.8", "8.8.4.4", "9.9.9.9", "149.112.112.112", "208.67.222.222", "208.67.220.220", "94.140.14.14", "94.140.15.15" } }`) {
+		t.Fatal("doh_block4 set missing the default bootstrap IPs")
+	}
+	if strings.Count(ruleset, "tcp dport 853 counter drop") != 1 || strings.Count(ruleset, "udp dport 853 counter drop") != 1 {
+		t.Fatal("DoT/DoQ :853 drops missing")
+	}
+
+	// Order guard: the shield drops come first.
+	doh := strings.Index(ruleset, "ip daddr @doh_block4 counter drop")
+	dot := strings.Index(ruleset, "tcp dport 853 counter drop")
+	gate := strings.Index(ruleset, "ether saddr != @authed_guests meta l4proto tcp reject")
+	if doh == -1 || dot == -1 || gate == -1 {
+		t.Fatal("shield lines not found")
+	}
+	if !(doh < dot && dot < gate) {
+		t.Fatal("shield drops must precede the authed_guests exception in gate_fwd")
+	}
+
+	// Guest bridge binding only — br-lan traffic must not be touched.
+	if !strings.Contains(ruleset, `iifname "br-guest" ip daddr @doh_block4 counter drop`) {
+		t.Fatal("shield must be scoped to the guest bridge")
+	}
+}
+
+// A zero-value shield renders an EMPTY set element clause and no drops:
+// opt-out stays a pure plan choice, and the template never emits `{ }`
+// (nft-invalid) when the IP list is empty.
+func TestDohShieldZeroValueOmitsDrops(t *testing.T) {
+	p := cafePlan()
+	p.DohShield = DoHShield{} // explicit opt-out
+	ruleset := mustRender(t, p)
+
+	if strings.Contains(ruleset, "doh_block4") {
+		t.Fatal("empty shield must not render the set at all")
+	}
+	if strings.Contains(ruleset, "dport 853") {
+		t.Fatal("empty shield must not render :853 drops")
 	}
 }

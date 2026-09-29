@@ -6,6 +6,17 @@ gap yang perlu keputusanmu sebelum lanjut ke M1.
 
 ## Status: M0–M2 tuntas, M3 inti jalan — produksi Pi 5 hidup (SSID on air, ruleset terpasang, DEAUTH revoke aktif)
 
+**Baru (M3.5): DoH/DoT shield** — Android Private DNS / Chrome DoH
+bisa melewati captive flow sepenuhnya (tamu tidak pernah kena DNAT :80,
+HP menyatakan "tidak ada internet" alih-alih membuka portal — teramati
+langsung dengan HP tamu). Mitigasi di `kcp_portal.gate_fwd`
+(`nft.DoHShield`, default aktif): IP bootstrap resolver publik
+(1.1.1.1, 8.8.8.8, 9.9.9.9, dst.) diblok untuk seluruh trafik br-guest
++ DoT/DoQ :853 di-drop — Private DNS gagal bootstrap, OS fallback ke
+DNS DHCP (dnsmasq), dan captive flow berjalan normal. Berlaku juga
+untuk sesi yang sudah authorized (kebijakan DNS venue bagian dari
+sesi); query upstream router sendiri tidak terdampak.
+
 **Baru (M3): web/admin GUI** — React + Vite + TypeScript di-embed ke
 binary (`internal/api/webadmin`) dan dilayani dari listener REST yang
 sama (`127.0.0.1:8083`): shell statis tanpa token (halaman login harus

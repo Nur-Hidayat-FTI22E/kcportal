@@ -264,6 +264,14 @@ func (h *Handler) buildPlan(snap *store.Plan) (*nft.Plan, error) {
 		WaitingHTTP:    "10.20.99.1:8081", // ERR-01 info page
 		GuestUpKbps:    h.Cfg.Portal.UplinkKbps,
 		GuestDownKbps:  h.Cfg.Portal.DownlinkKbps,
+		// DoH/DoT shield (see nft.DoHShield): guests must resolve via
+		// dnsmasq or not at all, or Android Private DNS silently bypasses
+		// the captive flow (observed live 2026-09). Central defaults here;
+		// a plan that wants it off passes an explicit empty shield.
+		DohShield: nft.DoHShield{
+			BootstrapIPs: nft.DefaultDohBootstrapIPs(),
+			BlockDoT:     true,
+		},
 	}
 
 	if !h.Setup { // DD-15: no device-derived identity state in setup mode

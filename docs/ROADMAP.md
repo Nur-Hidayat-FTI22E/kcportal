@@ -84,6 +84,23 @@ Sesuaikan urutannya kapan saja — ini bukan kutipan dari §12 aslinya.
 - [ ] Sync pemasaran ke kcp-server (client_ref) — M5 `portal.sync`,
   pseudonym sudah dicetak di sini.
 
+## M3.5 — DoH/DoT shield (2026-09-29, jembatan ke M4)
+
+- [x] Shield encrypted-DNS bypass di `gate_fwd` (`nft.DoHShield`, wired
+  default ON oleh reconciler): blok IP bootstrap resolver publik
+  (Cloudflare/Google/Quad9/OpenDNS/AdGuard) + DoT/DoQ :853 untuk seluruh
+  trafik br-guest — authed maupun belum. Efeknya: Android Private DNS /
+  Chrome DoH gagal bootstrap dan OS fallback ke DNS DHCP (dnsmasq) yang
+  mengarah ke captive flow. Query resolver upstream router sendiri tidak
+  terdampak (tidak berorigin `iifname br-guest`). Catatan jujur: DoH di
+  443 ke resolver yang TIDAK termasuk daftar bootstrap tetap lolos —
+  daftar ini menutup default picker Android & allowlist browser utama;
+  DNS hijack :53 + redirect HTTPS sudah menutup sisanya sepanjang klien
+  masih pakai DNS dari DHCP.
+- [ ] Enrichment DoH (M4+): blok SNI/ECH "dns.google"/"cloudflare-dns.com"
+  butuh inspeksi TLS (di luar scope nftables); dipantau dari audit
+  jurnal bila ada tamu yang masih lolos.
+
 ## M4 — PoS App Pack (§7.1 IF-03, §6.5)
 
 - Podman/Quadlet rootless `pos-cafe`; proxy `apps` (:8443) + `pos-onboard`

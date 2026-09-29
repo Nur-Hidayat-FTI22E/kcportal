@@ -66,6 +66,46 @@ type Uplinks struct {
 	Tunnels []string // e.g. {"wg0"} — empty when no VPN is configured
 }
 
+// DoHShield carries the mitigations against clients whose encrypted DNS
+// bypasses the captive DNS (Android Private DNS, Chrome DoH, DoT, DoQ).
+// Without it such a client never resolves the OS captive-probe hostname
+// through dnsmasq, never receives the 302, and the phone marks the
+// network "no internet" instead of popping the portal (observed live,
+// 2026-09: guest phone on Chrome/cloudflare-dns DoH). Rendered as drops
+// at the TOP of kcp_portal.gate_fwd — before any authed_guests
+// exception, because the venue's DNS policy applies to the whole guest
+// session, not just the pre-auth window. The router's own upstream
+// resolver queries are unaffected: they originate locally, not iifname
+// br-guest.
+//
+// Encrypted DNS cannot be blocked per port (DoH hides inside 443), so
+// the shield works on the BOOTSTRAP level: the well-known anycast IPs
+// of the dominant public resolvers are blocked outright, which makes
+// Private DNS bootstrap fail and the OS fall back to the DHCP-provided
+// resolver (dnsmasq) — exactly the path the portal owns.
+type DoHShield struct {
+	// BootstrapIPs are blocked for ALL guest traffic (any port — DoH
+	// rides 443, plain DNS rides 53; blocking the IPs covers both).
+	BootstrapIPs []string
+	// BlockDoT drops tcp/udp :853 (DoT + DoQ) from guests.
+	BlockDoT bool
+}
+
+// DefaultDohBootstrapIPs are the anycast bootstrap endpoints of the
+// public resolvers that ship in Android's Private DNS picker and the
+// Chrome/Firefox DoH allowlists. IPv4 only for now: the Café profile
+// does not announce IPv6 on the bridges (no RA), so there is no v6 path
+// to shield yet — revisit with DD-08 (native /64 per segment).
+func DefaultDohBootstrapIPs() []string {
+	return []string{
+		"1.1.1.1", "1.0.0.1", // Cloudflare (+ WARP bootstrap)
+		"8.8.8.8", "8.8.4.4", // Google
+		"9.9.9.9", "149.112.112.112", // Quad9
+		"208.67.222.222", "208.67.220.220", // OpenDNS
+		"94.140.14.14", "94.140.15.15", // AdGuard
+	}
+}
+
 // Plan is the complete desired state rendered into kcp.nft.
 type Plan struct {
 	SetupMode bool // DD-15: br-lan gets mark 0x01 instead of mac_zone lookup
@@ -106,6 +146,11 @@ type Plan struct {
 	// portal.uplink_kbps/downlink_kbps in app.yaml). 0 = no limit.
 	GuestUpKbps   int
 	GuestDownKbps int
+
+	// DohShield renders the encrypted-DNS bypass drops in gate_fwd (see
+	// the type's comment). Zero value renders nothing — the reconciler
+	// wires the defaults.
+	DohShield DoHShield
 
 	Bindings []Binding // mac_ip4/mac_ip6 sets
 	Guests   []Guest   // authed_guests set

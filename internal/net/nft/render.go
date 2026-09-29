@@ -81,6 +81,21 @@ func (p *Plan) egressIfs() []string {
 	return append(append([]string{}, p.Uplinks.WAN...), p.Uplinks.Tunnels...)
 }
 
+// dohIPs / dohIPsQuoted are the kcp_portal.doh_block4 element bodies:
+// plain for comments/tests, quoted for the set definition.
+func (p *Plan) dohIPs() []string {
+	return append([]string{}, p.DohShield.BootstrapIPs...)
+}
+
+func (p *Plan) dohIPsQuoted() []string {
+	ips := p.dohIPs()
+	out := make([]string, len(ips))
+	for i, ip := range ips {
+		out[i] = fmt.Sprintf("%q", ip)
+	}
+	return out
+}
+
 // internetMarks / vpnMarks are the mark literals for zones with
 // internet: true / vpn: true.
 func (p *Plan) internetMarks() []string {
@@ -139,7 +154,7 @@ type lanAllowLine struct {
 // happens here in testable Go and the template stays dumb. Empty string
 // means "omit the elements clause" (nft rejects `{ }`).
 type renderView struct {
-	*Plan // exported Plan fields (bridges, portals, rates, SetupMode…) stay reachable from the template
+	*Plan // exported Plan fields (bridges, portals table fields, SetupMode…) stay reachable from the template
 
 	UplinkElems   string // inline style: "a", "b"
 	TunnelElems   string
@@ -151,6 +166,7 @@ type renderView struct {
 	VPNMarks      string
 	LANAllows     []lanAllowLine
 	MACZoneElems  string
+	DohIPs        string // quoted inline set elements; empty omits the set
 }
 
 func joinInline(items []string) string { return strings.Join(items, ", ") }
@@ -179,6 +195,7 @@ func buildView(p *Plan) *renderView {
 		VPNMarks:      joinInline(p.vpnMarks()),
 		LANAllows:     p.lanAllows(),
 		MACZoneElems:  joinBlock(p.macZoneElems()),
+		DohIPs:        joinInline(p.dohIPsQuoted()),
 	}
 }
 
@@ -256,6 +273,9 @@ table inet kcp_portal {
   }{{- end }} }
   set g_up   { type ipv4_addr; flags dynamic,timeout; timeout 1m; size 1024; }
   set g_down { type ipv4_addr; flags dynamic,timeout; timeout 1m; size 1024; }
+{{- if .DohIPs }}
+  set doh_block4 { type ipv4_addr; elements = { {{ .DohIPs }} } }   # public-resolver bootstrap IPs (DoHShield)
+{{- end }}
 
   chain nat_pre {
     type nat hook prerouting priority dstnat; policy accept;
@@ -274,6 +294,17 @@ table inet kcp_portal {
   }
   chain gate_fwd {
     type filter hook forward priority filter - 10; policy accept;
+{{- if .DohIPs }}
+    # DoH/DoT shield (§5 UX): a guest resolving via its own encrypted DNS
+    # never fetches the OS captive probe through dnsmasq, so the portal
+    # never pops (observed live: Android Private DNS). Applies to authed
+    # guests too — the venue's DNS policy is part of the session.
+    iifname "{{ .GuestBridge }}" ip daddr @doh_block4 counter drop
+{{- end }}
+{{- if .DohShield.BlockDoT }}
+    iifname "{{ .GuestBridge }}" tcp dport 853 counter drop   # DoT (RFC 7858)
+    iifname "{{ .GuestBridge }}" udp dport 853 counter drop   # DoQ (RFC 9250)
+{{- end }}
     iifname "{{ .GuestBridge }}" ether saddr != @authed_guests meta l4proto tcp reject with tcp reset   # fail fast, not timeout
     iifname "{{ .GuestBridge }}" ether saddr != @authed_guests reject with icmpx type admin-prohibited
 {{- if gt .GuestUpKbps 0 }}
