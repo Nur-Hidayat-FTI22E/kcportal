@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -272,6 +273,13 @@ func (h *Handler) buildPlan(snap *store.Plan) (*nft.Plan, error) {
 			BootstrapIPs: nft.DefaultDohBootstrapIPs(),
 			BlockDoT:     true,
 		},
+		// DD-14 App Pack egress: uid kcapps (>0 in app.yaml) gets a
+		// default-deny egress chain; the only exceptions are the
+		// explicitly configured app destinations (the LAN printer). The
+		// proxy/onboard listeners stay reachable — they accept on the
+		// input path, not output, and loopback egress always passes.
+		AppEgressUID: h.Cfg.AppsUID,
+		AppAllows:    h.appEgressAllows(),
 	}
 
 	if !h.Setup { // DD-15: no device-derived identity state in setup mode
@@ -332,6 +340,32 @@ func (h *Handler) mgmtV4() string {
 		}
 	}
 	return ""
+}
+
+// appEgressAllows converts the configured App Pack entries into DD-14
+// egress exceptions: only tcp-printer destinations need an outbound
+// rule (usb-mode apps generate no LAN traffic). Hosts are IP literals
+// by design (§7.1: the container has no resolver dependency).
+func (h *Handler) appEgressAllows() []nft.LANAllow {
+	var out []nft.LANAllow
+	for _, app := range h.Cfg.Apps {
+		if app.PrinterMode != "tcp" || app.PrinterAddr == "" {
+			continue
+		}
+		host, portStr, err := net.SplitHostPort(app.PrinterAddr)
+		if err != nil {
+			continue // malformed addr surfaces in the app's own dial error
+		}
+		if net.ParseIP(host) == nil {
+			continue // hostname: not renderable without resolution — skip
+		}
+		port, err := strconv.Atoi(portStr)
+		if err != nil || port <= 0 || port > 65535 {
+			continue
+		}
+		out = append(out, nft.LANAllow{DstIP: host, Proto: "tcp", Port: uint16(port)})
+	}
+	return out
 }
 
 // lanAllowsFor resolves zone lan_allow from config by zone id (config is

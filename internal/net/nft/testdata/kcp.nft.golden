@@ -126,7 +126,6 @@ table inet kcp_filter {
 
   chain output {
     type filter hook output priority filter; policy accept;
-    # meta skuid <kcapps-uid> jump app_egress — wired when the App Pack lands (M4, DD-14)
   }
 }
 

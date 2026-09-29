@@ -2,6 +2,7 @@ package reconcile
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -180,5 +181,24 @@ func TestSyncReappliesWithoutCommand(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("startup ruleset missing %s", want)
 		}
+	}
+}
+
+// DD-14: appEgressAllows converts tcp printer entries into nft allows,
+// skipping usb-mode apps and hostname addresses (IP literals only —
+// the container has no resolver).
+func TestAppEgressAllows(t *testing.T) {
+	cfg := config.Default()
+	cfg.AppsUID = 1001
+	cfg.Apps = []config.AppEntry{
+		{ID: "pos-cafe", PrinterMode: "tcp", PrinterAddr: "10.20.2.20:9100"},
+		{ID: "pos-usb", PrinterMode: "usb", PrinterAddr: "/dev/usb/lp0"},
+		{ID: "pos-host", PrinterMode: "tcp", PrinterAddr: "printer.local:9100"}, // hostname: skipped
+		{ID: "pos-bad", PrinterMode: "tcp", PrinterAddr: "10.20.2.99:notaport"},
+	}
+	h := NewHandler(nil, cfg, &stubApplier{}, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	allows := h.appEgressAllows()
+	if len(allows) != 1 || allows[0].DstIP != "10.20.2.20" || allows[0].Proto != "tcp" || allows[0].Port != 9100 {
+		t.Fatalf("allows = %+v", allows)
 	}
 }

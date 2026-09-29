@@ -152,6 +152,18 @@ type Plan struct {
 	// wires the defaults.
 	DohShield DoHShield
 
+	// AppEgressUID is the host uid the App Pack containers run as
+	// (kcapps). >0 wires the DD-14 chain: every NEW outbound connection
+	// from that uid is dropped by kcp_filter app_egress unless an
+	// explicit AppAllow matches. Loopback and established flows always
+	// pass. 0 (or negative) renders nothing — egress stays open (dev
+	// boxes, explicit opt-out).
+	AppEgressUID int
+	// AppAllows are the explicit egress exceptions (e.g. the LAN
+	// receipt printer 10.20.2.20:9100, IF-03). Rendered as
+	// `ip daddr <ip> <proto> dport <port> accept` inside app_egress.
+	AppAllows []LANAllow
+
 	Bindings []Binding // mac_ip4/mac_ip6 sets
 	Guests   []Guest   // authed_guests set
 
@@ -201,6 +213,17 @@ func (p *Plan) Validate() error {
 			if a.Port == 0 {
 				return fmt.Errorf("nft: zone %q lan_allow port 0 is invalid", z.Name)
 			}
+		}
+	}
+	for _, a := range p.AppAllows {
+		if a.Proto != "tcp" && a.Proto != "udp" {
+			return fmt.Errorf("nft: app_egress allow proto %q must be tcp or udp", a.Proto)
+		}
+		if _, err := netip.ParseAddr(a.DstIP); err != nil {
+			return fmt.Errorf("nft: app_egress allow dst_ip %q is not an IP: %v", a.DstIP, err)
+		}
+		if a.Port == 0 {
+			return fmt.Errorf("nft: app_egress allow port 0 is invalid")
 		}
 	}
 	seenMAC := map[string]bool{}

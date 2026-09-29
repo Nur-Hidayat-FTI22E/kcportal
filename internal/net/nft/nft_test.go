@@ -497,3 +497,58 @@ func TestDohShieldZeroValueOmitsDrops(t *testing.T) {
 		t.Fatal("empty shield must not render :853 drops")
 	}
 }
+
+// --- DD-14 app egress ---
+
+// With AppEgressUID set, output jumps to a default-deny app_egress
+// chain: loopback and established pass first, explicit allows next,
+// drop last.
+func TestAppEgressRendersDenyChain(t *testing.T) {
+	p := cafePlan()
+	p.AppEgressUID = 1001
+	p.AppAllows = []LANAllow{{DstIP: "10.20.2.20", Proto: "tcp", Port: 9100}}
+	ruleset := mustRender(t, p)
+
+	if !strings.Contains(ruleset, "meta skuid 1001 jump app_egress") {
+		t.Fatal("output chain missing the skuid jump")
+	}
+	// Order matters only WITHIN the app_egress chain — `counter drop`
+	// also appears in earlier chains (gate_in), so scope the search to
+	// the chain body.
+	chainStart := strings.Index(ruleset, "chain app_egress")
+	if chainStart < 0 {
+		t.Fatal("app_egress chain missing")
+	}
+	body := ruleset[chainStart:]
+	lo := strings.Index(body, `oifname "lo" return`)
+	stab := strings.Index(body, "ct state established,related return")
+	allow := strings.Index(body, "ip daddr 10.20.2.20 tcp dport 9100 accept")
+	drop := strings.Index(body, "counter drop")
+	for i, pos := range []int{lo, stab, allow, drop} {
+		if pos < 0 {
+			t.Fatalf("app_egress piece %d missing", i)
+		}
+	}
+	if !(lo < stab && stab < allow && allow < drop) {
+		t.Fatal("app_egress order wrong: lo+established+allows must precede the drop")
+	}
+}
+
+// Zero/negative uid renders nothing at all (opt-out; dev boxes).
+func TestAppEgressZeroUIDOmitsChain(t *testing.T) {
+	p := cafePlan()
+	p.AppEgressUID = 0
+	p.AppAllows = []LANAllow{{DstIP: "10.20.2.20", Proto: "tcp", Port: 9100}}
+	ruleset := mustRender(t, p)
+	if strings.Contains(ruleset, "app_egress") || strings.Contains(ruleset, "skuid") {
+		t.Fatal("uid 0 must not render the egress chain")
+	}
+
+	// Validation guards the allows even when active.
+	p2 := cafePlan()
+	p2.AppEgressUID = 1001
+	p2.AppAllows = []LANAllow{{DstIP: "nope", Proto: "tcp", Port: 9100}}
+	if _, err := Render(p2); err == nil {
+		t.Fatal("non-IP allow dst must fail validation")
+	}
+}

@@ -20,6 +20,11 @@ type Config struct {
 	Apps          []AppEntry   `yaml:"apps"`
 	Portal        PortalConfig `yaml:"portal"`
 	RetentionDays int          `yaml:"retention_days"` // guest_sessions retention (§8, NFR-PRV-01 default 30)
+	// AppsUID is the host uid App Pack containers run as (kcapps). >0
+	// wires the DD-14 app_egress chain (default-deny egress for that
+	// uid, explicit allows only). 0 = no enforcement (default for
+	// deployments without the App Pack).
+	AppsUID int `yaml:"apps_uid"`
 }
 
 type WANConfig struct {

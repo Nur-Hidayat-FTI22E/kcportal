@@ -131,6 +131,17 @@ func (p *Plan) macZoneElems() []string {
 	return out
 }
 
+// appAllowLines renders the DD-14 app_egress exceptions: `ip daddr
+// <ip> <proto> dport <port> accept` (no oifname filter — the printer
+// sits on the local LAN segment, not behind egress_if).
+func (p *Plan) appAllowLines() []string {
+	out := make([]string, 0, len(p.AppAllows))
+	for _, a := range p.AppAllows {
+		out = append(out, fmt.Sprintf("ip daddr %s %s dport %d accept", a.DstIP, a.Proto, a.Port))
+	}
+	return out
+}
+
 // lanAllows flattens every zone's exceptions with its mark resolved —
 // the forward chain emits `meta mark <mark> ip daddr <ip> <proto> dport
 // <port> accept` per §4.3's POS->printer example.
@@ -167,6 +178,7 @@ type renderView struct {
 	LANAllows     []lanAllowLine
 	MACZoneElems  string
 	DohIPs        string // quoted inline set elements; empty omits the set
+	AppAllowLines []string
 }
 
 func joinInline(items []string) string { return strings.Join(items, ", ") }
@@ -196,6 +208,7 @@ func buildView(p *Plan) *renderView {
 		LANAllows:     p.lanAllows(),
 		MACZoneElems:  joinBlock(p.macZoneElems()),
 		DohIPs:        joinInline(p.dohIPsQuoted()),
+		AppAllowLines: p.appAllowLines(),
 	}
 }
 
@@ -383,8 +396,22 @@ table inet kcp_filter {
 
   chain output {
     type filter hook output priority filter; policy accept;
-    # meta skuid <kcapps-uid> jump app_egress — wired when the App Pack lands (M4, DD-14)
+{{- if gt .AppEgressUID 0 }}
+    # DD-14: containerized App Pack egress — everything NEW from that
+    # uid goes to app_egress and is dropped unless explicitly allowed.
+    meta skuid {{ .AppEgressUID }} jump app_egress
+{{- end }}
   }
+{{- if gt .AppEgressUID 0 }}
+  chain app_egress {
+    oifname "lo" return                                            # local sockets: proxy->app, resolver stub
+    ct state established,related return                            # already-accepted flows keep flowing
+{{- range .AppAllowLines }}
+    {{ . }}
+{{- end }}
+    counter drop                                                   # default-deny egress (DD-14)
+  }
+{{- end }}
 }
 
 # ===== 4) NAT =====
