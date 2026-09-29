@@ -72,18 +72,24 @@ Batasan arsitektur yang tidak boleh dilanggar:
   OK, 8444 tak terjangkau dari luar (timeout), 3 service router tetap
   sehat.
 
-### M4.2 —apps proxy + pos-onboard (est. 1 sesi)
+### M4.2 — apps proxy + pos-onboard — **SELESAI (2026-09-30)**
 
-- [ ] `apps` proxy (binari Go kecil, SATU proyek `cmd/pos-proxy`):
-  terminasi TLS SNI `pos.*` di :8443 → forward ke 127.0.0.1:<app-port>
-  (pattern cocok untuk app pack berikutnya). Sertifikat dari CA lokal.
-- [ ] `pos-onboard` :8082 (binari Go, `cmd/pos-onboard`): generate CA
-  T1 lokal (sekali, di `/var/lib/kcportal/pos/ca`), sertifikat server
-  untuk `pos.<venue>`, dan halaman unduh root-CA untuk browser kasir
-  (HANYA dari br-lan — ruleset sudah membatasi ke mark 0x02).
-- [ ] Kontrak cert: SAN = `pos.<venue>.kcp.internal` + `10.20.2.1`;
-  rotasi manual via onboard; tidak ada ACME (T1, DD-09 — publik itu
-  M6).
+- [x] `internal/pos/pki`: CA lokal T1 idempotent — dibuat sekali;
+  CA rusak/kadaluarsa = ERROR (re-key harus disengaja, bukan rotasi
+  diam-diam). Leaf di-terbitkan/ulang otomatis bila host berubah atau
+  mendekati kadaluarsa (horizon 30 hari; batas leaf 825 hari ala iOS).
+- [x] `cmd/pos-onboard` :8082 (unit **system**, root): merawat PKI +
+  serve `GET /ca.crt` untuk browser kasir. SAN =
+  `pos.kcp.internal` + `10.20.1.1` + `10.20.2.1`.
+- [x] `cmd/pos-proxy` :8443 (unit **user** kcapps): terminasi TLS
+  (MinVersion 1.2) → `127.0.0.1:8444`; 502 JSON saat app mati; hanya
+  MEMBACA PKI (error jelas bila onboard belum jalan).
+- [x] Kepemilikan PKI: root menulis → `chown` tree ke kcapps (live:
+  proxy gagal baca kunci 0600 root sebelum fix ini).
+- [x] Verifikasi live: unduh CA 200 dari workstation → HTTPS
+  `https://pos.kcp.internal:8443/` 200 dengan **trust CA lokal SAJA**
+  → jawaban `pos-cafe skeleton` sampai di browser. 6 unit aktif
+  (onboard, proxy, pos-cafe, kcportald, hostapd, dnsmasq).
 
 ### M4.3 — pos-cafe aplikasi (est. 2-3 sesi, bagian terbesar)
 
@@ -114,17 +120,17 @@ Batasan arsitektur yang tidak boleh dilanggar:
 - [ ] Struk: format ESC/POS 58mm (PaperMM dari env), cut + logo
   opsional; reprint dari arsip order.
 
-### M4.4 — Egress enforcement DD-14 (est. ½ sesi)
+### M4.4 — Egress enforcement DD-14 — **SELESAI (2026-09-30)**
 
-- [ ] Chain `app_egress` di template nft + `meta skuid` kcapps-uid:
-  allow-established, allow printer-LAN `10.20.2.20:9100` bila mode
-  tcp, **drop sisanya** (DNS kontainer ikut dnsmasq router? TIDAK —
-  PoS tidak butuh DNS: semua target IP literal; resolve dihindari).
-- [ ] Ganti komentar placeholder `chain output` dengan jump nyata;
-  golden files di-update; test order-guard (drop sebelum accept).
-- [ ] Verifikasi negatif: dari dalam kontainer, `curl 1.1.1.1` harus
-  gagal (dan justru itu counter DoH shield akan menangkapnya bila
-  lewat br-guest — tidak relevan, ini br-lan side).
+- [x] Chain `app_egress` + `meta skuid` dari `Plan.AppEgressUID`
+  (app.yaml `apps_uid`, ON di Pi = 1001): `oif lo return` →
+  `ct state established,related return` → allows eksplisit → `drop`.
+  Allows dirender dari entri printer mode-tcp (hanya IP literal —
+  kontainer tak punya resolver); mode-usb tak butuh aturan keluar.
+- [x] Golden files + test order-guard + validasi allows (proto/IP/port).
+- [x] Verifikasi negatif live: `curl 1.1.1.1` sebagai kcapps →
+  timeout terblok, counter `app_egress` naik (4 paket); loopback
+  healthz dari uid sama tetap 200.
 
 ### M4.5 — Deployment + verifikasi E2E (est. 1 sesi)
 
@@ -166,6 +172,10 @@ M2/M3.
 
 ---
 
-**Status eksekusi: M4.1 selesai (2026-09-30).** Lanjutan: M4.4
-(egress `meta skuid`), M4.2 (proxy + onboard), M4.3 (aplikasi PoS),
-M4.5 (verifikasi E2E + uji cabut daya).
+**Status eksekusi (2026-09-30): M4.1 ✅ · M4.4 ✅ · M4.2 ✅.** Rantai
+HTTPS penuh terbukti dari workstation: unduh CA (onboard :8082) →
+TLS :8443 (proxy, trust CA lokal saja) → pos-cafe :8444 (loopback).
+Egress kcapps default-deny dengan bukti counter. **Lanjutan: M4.3**
+(aplikasi PoS penuh: auth PIN, shift, order, bayar cash+QRIS manual,
+printer ESC/POS usb+tcp, print_jobs dalam transaksi pembayaran),
+lalu **M4.5** (E2E + uji cabut daya).
