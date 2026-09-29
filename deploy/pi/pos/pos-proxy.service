@@ -1,0 +1,19 @@
+# pos-proxy user unit (kcapps) — TLS terminator 8443 → 127.0.0.1:8444.
+# Reads the PKI written by pos-onboard (system unit); must run AFTER
+# the first onboard boot. Installed to
+# ~kcapps/.config/systemd/user/pos-proxy.service by pos-setup.sh.
+
+[Unit]
+Description=kotacloud PoS apps proxy (TLS 8443 -> pos-cafe)
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/pos-proxy
+Environment=POS_PKI_DIR=/var/lib/kcportal/pos/pki
+Environment=POS_PROXY_ADDR=:8443
+Environment=POS_BACKEND=http://127.0.0.1:8444
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

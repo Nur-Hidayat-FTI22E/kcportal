@@ -1,0 +1,23 @@
+# pos-onboard system unit — owns /var/lib/kcportal/pos/pki (creates
+# the venue-local CA, renews the proxy server cert) and serves the CA
+# download for cashier browsers on :8082. Installed by pos-setup.sh
+# (system unit → systemctl enable --now pos-onboard).
+
+[Unit]
+Description=kotacloud PoS onboarding (local CA + cert + ca.crt download)
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/pos-onboard
+Environment=POS_PKI_DIR=/var/lib/kcportal/pos/pki
+Environment=POS_ONBOARD_ADDR=:8082
+Restart=on-failure
+RestartSec=10
+# Keep it minimal: only the PKI dir + bind ports.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/kcportal/pos/pki
+ProtectHome=yes
+
+[Install]
+WantedBy=multi-user.target

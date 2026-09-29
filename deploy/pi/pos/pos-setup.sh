@@ -52,6 +52,22 @@ cmd mkdir -p "$POS_DIR"
 cmd chown "$KCAPPS_USER:$KCAPPS_USER" "$POS_DIR"
 cmd chmod 0750 "$POS_DIR"
 
+# --- 5b) M4.2 binaries + units (onboard=system, proxy=kcapps user) ---
+if [ -f "$REPO_DIR/pos-proxy" ]; then
+	cmd install -m 0755 "$REPO_DIR/pos-proxy" /usr/local/bin/pos-proxy
+	cmd install -m 0755 "$REPO_DIR/pos-onboard" /usr/local/bin/pos-onboard
+	cmd install -m 0644 "$REPO_DIR/deploy/pi/pos/pos-onboard.service" /etc/systemd/system/pos-onboard.service
+	cmd systemctl daemon-reload
+	cmd systemctl enable --now pos-onboard
+	cmd mkdir -p "/home/$KCAPPS_USER/.config/systemd/user"
+	cmd install -m 0644 "$REPO_DIR/deploy/pi/pos/pos-proxy.service" "/home/$KCAPPS_USER/.config/systemd/user/pos-proxy.service"
+	cmd chown -R "$KCAPPS_USER:$KCAPPS_USER" "/home/$KCAPPS_USER/.config"
+	cmd systemctl enable --global pos-proxy 2>/dev/null || true
+	# Wait for the PKI to exist before the proxy's first start attempt.
+	sleep 2
+	cmd systemctl start pos-onboard 2>/dev/null || true
+fi
+
 # --- 5) unit install (quadlet vs fallback) ---
 if [ "$PODMAN_MAJOR" -gt 4 ] || { [ "$PODMAN_MAJOR" -eq 4 ] && [ "$PODMAN_MINOR" -ge 4 ]; }; then
 	echo "== Podman >= 4.4 detected — installing the quadlet fast-path =="
