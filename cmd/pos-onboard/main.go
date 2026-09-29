@@ -19,6 +19,9 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"os/user"
+	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -48,6 +51,11 @@ func main() {
 	if _, err := ca.EnsureServerCert(pkiDir, hosts); err != nil {
 		log.Error("server cert issue failed", "err", err)
 		os.Exit(1)
+	}
+	// Hand the PKI files to kcapps: pos-proxy (user unit) must read the
+	// CA + leaf including the 0600 keys. Root writes, kcapps owns.
+	if err := chownTree(pkiDir, "kcapps"); err != nil {
+		log.Warn("cannot hand PKI to kcapps — proxy will fail to read it", "err", err)
 	}
 	log.Info("pki ready", "dir", pkiDir, "hosts", hosts)
 
@@ -87,6 +95,29 @@ func main() {
 		}
 	}
 	log.Info("shutdown complete")
+}
+
+// chownTree hands every file under dir to the named user (keys stay
+// 0600, so the proxy can read them as its own).
+func chownTree(dir, username string) error {
+	u, err := user.Lookup(username)
+	if err != nil {
+		return err
+	}
+	uid, err := strconv.Atoi(u.Uid)
+	if err != nil {
+		return err
+	}
+	gid, err := strconv.Atoi(u.Gid)
+	if err != nil {
+		return err
+	}
+	return filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		return os.Chown(path, uid, gid)
+	})
 }
 
 func splitAndTrim(s string) []string {

@@ -51,6 +51,10 @@ fi
 cmd mkdir -p "$POS_DIR"
 cmd chown "$KCAPPS_USER:$KCAPPS_USER" "$POS_DIR"
 cmd chmod 0750 "$POS_DIR"
+# pos-onboard's PKI dir must pre-exist: its unit's ReadWritePaths is
+# set up before any process runs (missing path → exit 226).
+cmd mkdir -p "$POS_DIR/pki"
+cmd chmod 0700 "$POS_DIR/pki"
 
 # --- 5b) M4.2 binaries + units (onboard=system, proxy=kcapps user) ---
 if [ -f "$REPO_DIR/pos-proxy" ]; then

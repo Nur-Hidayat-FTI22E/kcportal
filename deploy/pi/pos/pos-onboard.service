@@ -8,6 +8,10 @@ Description=kotacloud PoS onboarding (local CA + cert + ca.crt download)
 After=network.target
 
 [Service]
+# NOTE: /var/lib/kcportal/pos/pki must exist BEFORE this unit starts —
+# ProtectSystem+ReadWritePaths set up the mount namespace before any
+# process (incl. ExecStartPre) runs; a missing path fails the unit
+# with exit 226. pos-setup.sh creates it; systemd-tmpfiles could too.
 ExecStart=/usr/local/bin/pos-onboard
 Environment=POS_PKI_DIR=/var/lib/kcportal/pos/pki
 Environment=POS_ONBOARD_ADDR=:8082
