@@ -44,6 +44,16 @@ func Open(path string) (*DB, error) {
 	// DD-12: single writer. Reads share it too for simplicity — the
 	// workload is one cashier; correctness beats a second pool.
 	db.SetMaxOpenConns(1)
+	// Versioned migrations: schema_migrations records which files ran,
+	// so 0001's plain CREATE TABLEs only execute on a fresh database
+	// (caught live: second boot died on "table categories already
+	// exists"). Future migrations append as 0002_*.sql.
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_migrations (
+		name TEXT PRIMARY KEY,
+		applied_at INTEGER NOT NULL)`); err != nil {
+		db.Close()
+		return nil, err
+	}
 	entries, err := schemaFS.ReadDir("schema")
 	if err != nil {
 		db.Close()
@@ -53,14 +63,37 @@ func Open(path string) (*DB, error) {
 		if !strings.HasSuffix(e.Name(), ".sql") {
 			continue
 		}
+		var done int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE name = ?`, e.Name()).Scan(&done); err != nil {
+			db.Close()
+			return nil, err
+		}
+		if done > 0 {
+			continue
+		}
 		raw, err := schemaFS.ReadFile("schema/" + e.Name())
 		if err != nil {
 			db.Close()
 			return nil, err
 		}
-		if _, err := db.Exec(string(raw)); err != nil {
+		tx, err := db.Begin()
+		if err != nil {
+			db.Close()
+			return nil, err
+		}
+		if _, err := tx.Exec(string(raw)); err != nil {
+			tx.Rollback()
 			db.Close()
 			return nil, fmt.Errorf("pos store: migrate %s: %w", e.Name(), err)
+		}
+		if _, err := tx.Exec(`INSERT INTO schema_migrations (name, applied_at) VALUES (?, ?)`, e.Name(), time.Now().Unix()); err != nil {
+			tx.Rollback()
+			db.Close()
+			return nil, err
+		}
+		if err := tx.Commit(); err != nil {
+			db.Close()
+			return nil, err
 		}
 	}
 	return &DB{DB: db, now: time.Now}, nil
