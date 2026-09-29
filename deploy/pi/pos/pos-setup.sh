@@ -22,7 +22,7 @@ set -eu
 KCAPPS_USER=kcapps
 KCAPPS_UID=1001        # host uid; keep-id maps it to 1000 inside
 POS_DIR=/var/lib/kcportal/pos
-REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+REPO_DIR="$(cd "$(dirname "$0")/../../.." && pwd)"   # script is deploy/pi/pos/… → repo root is 3 up
 
 cmd() { echo "+ $*"; "$@"; }
 
