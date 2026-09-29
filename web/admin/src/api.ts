@@ -104,6 +104,13 @@ export interface WanPosture {
   bridges_ready: boolean;
 }
 
+export interface ShieldStats {
+  Installed: boolean;
+  DoHPackets: number;
+  DoTPackets: number;
+  DoQPackets: number;
+}
+
 export const endpoints = {
   devices: (state?: string) =>
     `/api/v1/devices${state ? `?state=${encodeURIComponent(state)}` : ""}`,
@@ -118,4 +125,5 @@ export const endpoints = {
   audit: (limit = 100) => `/api/v1/audit?limit=${limit}`,
   vouchers: "/api/v1/vouchers",
   wan: "/api/v1/network/wan",
+  doh: "/api/v1/network/doh",
 };

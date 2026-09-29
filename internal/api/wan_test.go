@@ -75,6 +75,25 @@ func TestWanPostValidation(t *testing.T) {
 	}
 }
 
+func TestShieldGETFailsSoft(t *testing.T) {
+	_, h := newTestServer(t)
+	// On the test box no nft binary exists — the read fails and the
+	// handler must still answer 200 with installed=false (fail soft),
+	// NOT a 500: a missing shield is the message, not an error page.
+	rec := doJSON(t, h, "GET", "/api/v1/network/doh", "test-token-1", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET doh -> %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), `"Installed":false`) {
+		t.Fatalf("body = %s, want installed=false", rec.Body.String())
+	}
+	// The monitoring surface stays behind the bearer gate.
+	rec = doJSON(t, h, "GET", "/api/v1/network/doh", "", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no token -> %d, want 401", rec.Code)
+	}
+}
+
 func TestRecordAuditAnchorsAndChains(t *testing.T) {
 	db := storetest.Open(t)
 	now := time.Now()

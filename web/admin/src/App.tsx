@@ -11,6 +11,7 @@ import {
   type Voucher,
   type AuditEntry,
   type WanPosture,
+  type ShieldStats,
 } from "./api";
 
 // --- shared bits ---
@@ -203,7 +204,60 @@ function WizardTab() {
           </button>
         </div>
       </Card>
+      <ShieldCard />
     </>
+  );
+}
+
+// --- DoH shield monitoring (M3.5) ---
+
+// Live drop counters straight from the kernel ruleset. Packets > 0 is
+// GOOD news here: it means guests are trying encrypted DNS and the
+// shield is catching it (Private DNS bootstrap failures are the
+// expected visible effect, not an outage).
+function ShieldCard() {
+  const { data } = usePoll<ShieldStats>(() => api.get(endpoints.doh), 5000);
+  if (!data) return null;
+  if (!data.Installed) {
+    return (
+      <Card title="DoH shield">
+        <p className="muted">
+          Tidak terpasang pada ruleset yang berjalan (mode dev, dry-run,
+          atau dimatikan lewat Plan).
+        </p>
+      </Card>
+    );
+  }
+  return (
+    <Card title="DoH shield (counter drop live)">
+      <table>
+        <tbody>
+          <tr>
+            <th>Resolver bootstrap (DoH/DNS ke IP publik)</th>
+            <td>
+              <code>{data.DoHPackets}</code> paket di-drop
+            </td>
+          </tr>
+          <tr>
+            <th>DoT (tcp/853)</th>
+            <td>
+              <code>{data.DoTPackets}</code> paket di-drop
+            </td>
+          </tr>
+          <tr>
+            <th>DoQ (udp/853)</th>
+            <td>
+              <code>{data.DoQPackets}</code> paket di-drop
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <p className="muted">
+        Counter &gt; 0 berarti tamu mencoba DNS terenkripsi dan shield
+        memotongnya — Private DNS akan gagal dan HP fallback ke DNS
+        venue. Pembacaan langsung dari kernel tiap 5 detik.
+      </p>
+    </Card>
   );
 }
 

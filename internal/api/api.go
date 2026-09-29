@@ -102,6 +102,8 @@ func (s *Server) Handler() http.Handler {
 	// posture. Kernel-facing reconfig stays with kcp-net-apply.sh.
 	mux.HandleFunc("GET /api/v1/network/wan", s.wrap(s.HandleWanGET))
 	mux.HandleFunc("POST /api/v1/network/wan", s.wrap(s.HandleWanPOST))
+	// DoH shield monitoring (M3.5): live drop counters for the GUI.
+	mux.HandleFunc("GET /api/v1/network/doh", s.wrap(s.HandleShieldGET))
 	// The admin GUI (web/admin, compiled-in via internal/api/webadmin)
 	// rides the same listener: static paths are served without the
 	// bearer token (the browser must be able to load the login page
