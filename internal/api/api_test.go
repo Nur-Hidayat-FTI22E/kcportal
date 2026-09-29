@@ -150,3 +150,18 @@ func TestLoadTokenCreatesOnceAndReuses(t *testing.T) {
 		t.Fatalf("second load must reuse: created=%v same=%v err=%v", created2, tok1 == tok2, err)
 	}
 }
+
+func TestGUIServedWithoutTokenAPINot(t *testing.T) {
+	_, h := newTestServer(t)
+	// The embedded GUI shell loads without a token (login page must
+	// render before any credential exists).
+	rec := doJSON(t, h, "GET", "/", "", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "kotacloud admin") {
+		t.Fatalf("GET / -> %d, want the GUI shell: %s", rec.Code, rec.Body.String())
+	}
+	// But the API surface keeps its bearer gate.
+	rec = doJSON(t, h, "GET", "/api/v1/devices", "", "")
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("GET /api/v1/devices without token -> %d, want 401", rec.Code)
+	}
+}

@@ -42,6 +42,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"kotacloud-portal/internal/api/webadmin"
 	"kotacloud-portal/internal/confirm"
 	"kotacloud-portal/internal/core"
 	"kotacloud-portal/internal/portal"
@@ -101,7 +102,20 @@ func (s *Server) Handler() http.Handler {
 	// posture. Kernel-facing reconfig stays with kcp-net-apply.sh.
 	mux.HandleFunc("GET /api/v1/network/wan", s.wrap(s.HandleWanGET))
 	mux.HandleFunc("POST /api/v1/network/wan", s.wrap(s.HandleWanPOST))
-	return s.auth(mux)
+	// The admin GUI (web/admin, compiled-in via internal/api/webadmin)
+	// rides the same listener: static paths are served without the
+	// bearer token (the browser must be able to load the login page
+	// before any token exists — the bundle holds no secrets), while
+	// everything under /api/ keeps the auth middleware.
+	gui := webadmin.Handler()
+	apiHandler := s.auth(mux)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			apiHandler.ServeHTTP(w, r)
+			return
+		}
+		gui.ServeHTTP(w, r)
+	})
 }
 
 // --- plumbing ---
@@ -356,9 +370,15 @@ func (s *Server) handleZonePolicy(w http.ResponseWriter, r *http.Request) (any, 
 
 func (s *Server) handlePending(w http.ResponseWriter, r *http.Request) (any, error) {
 	out := map[string]any{"pending": false}
-	if deadline, ok := s.Confirmer.Deadline(); ok {
-		out["pending"] = true
-		out["deadline"] = deadline
+	// change_id + risk_reason ride along so the GUI can POST
+	// /changes/confirm with the exact id the trial was begun under.
+	if s.Confirmer != nil {
+		if p, ok := s.Confirmer.Active(); ok {
+			out["pending"] = true
+			out["deadline"] = p.Deadline
+			out["change_id"] = p.ChangeID
+			out["risk_reason"] = p.RiskReason
+		}
 	}
 	return out, nil
 }

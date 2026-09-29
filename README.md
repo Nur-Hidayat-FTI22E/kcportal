@@ -6,6 +6,16 @@ gap yang perlu keputusanmu sebelum lanjut ke M1.
 
 ## Status: M0–M2 tuntas, M3 inti jalan — produksi Pi 5 hidup (SSID on air, ruleset terpasang, DEAUTH revoke aktif)
 
+**Baru (M3): web/admin GUI** — React + Vite + TypeScript di-embed ke
+binary (`internal/api/webadmin`) dan dilayani dari listener REST yang
+sama (`127.0.0.1:8083`): shell statis tanpa token (halaman login harus
+bisa dimuat dulu), semua `/api/*` tetap bearer-token. Tab: setup
+wizard WAN, devices (approve/block), sesi tamu (revoke), voucher
+(generate/list), zona + policy dengan banner commit-confirm
+(`/changes/pending` kini membawa `change_id` + `risk_reason`), audit
+log. `dist/` di-commit sehingga CI tetap Go-only; dev mode pakai
+`npm run dev` + SSH tunnel (lihat `web/admin/README.md`).
+
 **Baru (M3 inti): portal tamu + REST admin** — tiga paket:
 
 - `internal/portal` — domain sesi tamu: pseudonym pemasaran DD-11

@@ -203,6 +203,18 @@ func (m *Manager) Recover(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
+// Active reports the active trial verbatim — the GUI needs change_id
+// (to POST /changes/confirm) and risk_reason (to show what is on
+// trial), not just the deadline. The copy is safe: Pending is values.
+func (m *Manager) Active() (Pending, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.current == nil {
+		return Pending{}, false
+	}
+	return *m.current, true
+}
+
 // Deadline reports the active trial's deadline (GET /changes/pending,
 // §7.2) or false when nothing is pending.
 func (m *Manager) Deadline() (time.Time, bool) {

@@ -70,8 +70,13 @@ Sesuaikan urutannya kapan saja — ini bukan kutipan dari §12 aslinya.
   view (deteksi iface/uplink/bridge) + POST record intent (settings
   `wan_config` + audit + app.yaml); kernel reconfig tetap manual via
   `kcp-net-apply.sh` (DD-15).
-- [ ] `web/portal` + `web/admin` (React, statis, di-embed) — halaman
-  Go saat ini fungsional tapi minimal.
+- [x] `web/admin` (2026-09-29): React + Vite + TS, di-embed via
+  `internal/api/webadmin` dan dilayani dari listener API yang sama
+  (127.0.0.1:8083) — shell tanpa token, `/api/*` tetap bearer;
+  `dist/` di-commit agar CI Go-only. Fitur: wizard WAN, devices,
+  tamu, voucher, zona (banner commit-confirm), audit.
+- [ ] `web/portal` (halaman tamu React) — halaman Go di portaledge
+  saat ini fungsional tapi minimal.
 - [ ] Sync pemasaran ke kcp-server (client_ref) — M5 `portal.sync`,
   pseudonym sudah dicetak di sini.
 
