@@ -43,25 +43,34 @@ Batasan arsitektur yang tidak boleh dilanggar:
 
 ## 1. Komponen & deliverable
 
-### M4.1 — Podman + Quadlet fondasi (est. 1 sesi)
+### M4.1 — Podman + Quadlet fondasi — **SELESAI (2026-09-30)**
 
-- [ ] `deploy/pi/pos-setup.sh`: install Podman + uidmap, buat user
+- [x] `deploy/pi/pos/pos-setup.sh`: install Podman + uidmap, buat user
   `kcapps` (lingering on), subuid/subgid, direktori
   `/var/lib/kcportal/pos` (data pos.db + CA). Idempotent, gaya sama
-  dengan `kcp-net-apply.sh`.
-- [ ] **Deteksi Quadlet**: `podman --version` >= 4.4 → quadlet;
-  Bookworm (Podman 4.3) → fallback **unit systemd user manual**
-  `~kcapps/.config/systemd/user/pos-cafe.service` dengan
-  `podman run` eksplisit. Kedua jalur diuji; quadlet adalah
-  fast-path, fallback adalah jalur yang dijamin jalan di Pi OS kini.
-- [ ] Quadlet file `deploy/pi/pos/pos-cafe.container`:
-  - image lokal (build di Pi, tanpa registry — offline-first),
-  - `PublishPort=127.0.0.1:18443:8443`? **TIDAK** — kontainer bergabung
-    jaringan host (`Network=host`) agar ruleset `skuid` bisa melihat
-    koneksinya; TLS diterminasi di proxy kecil milik pos-cafe sendiri
-    (lihat M4.2), jadi tidak butuh publish port sama sekali.
-  - `Volume=/var/lib/kcportal/pos:/data`, read-only rootfs.
-  - Healthcheck + `Restart=on-failure`, auto-update tidak (offline).
+  dengan `kcp-net-apply.sh`. *Realitas di Pi: Debian 13 Trixie →
+  Podman 5.4.2 → jalur quadlet langsung terpilih; fallback tetap
+  dikirim untuk ketahanan.*
+- [x] **Deteksi Quadlet** >= 4.4 → quadlet; fallback unit user manual
+  (`pos-cafe.service`) tetap disertakan.
+- [x] Quadlet `pos-cafe.container` + image offline-first:
+  - **Tanpa pull registry sama sekali**: binari dibangun di host Pi,
+    `Containerfile` satu stage `FROM scratch` (binari + passwd).
+    Build context distage di `/var/lib/kcportal/pos/build` karena
+    storage image Podman **per-user** (image milik kotacloud-captive
+    tak terlihat oleh kcapps).
+  - `Network=host` + `UserNS=keep-id:uid=1000,gid=1000`;
+    `Volume=/var/lib/kcportal/pos:/data`; `Restart=on-failure`.
+  - **Tanpa healthcheck kontainer** (image scratch tanpa shell/curl);
+    liveness = Restart systemd + pandangan proxy M4.2.
+  - **Bind loopback saja** (`POS_ADDR=127.0.0.1:8444`) — teramati
+    live: posture lab menerima semua dari subnet mgmt, bind 0.0.0.0
+    terjangkau langsung dari workstation; loopback menutupnya di
+    segala posture (komit d93507b).
+- [x] Verifikasi live: unit `active (running)` + `enabled` (Linger=
+  yes), `/healthz` 200 via 127.0.0.1, `podman kill` → auto-restart
+  OK, 8444 tak terjangkau dari luar (timeout), 3 service router tetap
+  sehat.
 
 ### M4.2 —apps proxy + pos-onboard (est. 1 sesi)
 
@@ -154,3 +163,9 @@ M4.1 → M4.4 → M4.2 → M4.3 → M4.5 (egress dulu supaya kontainer lahir
 sudah terkurung; aplikasi terakhir karena paling besar). Setiap tahap
 commit terpisah dan diuji di Pi sebelum lanjut, pola yang sama dengan
 M2/M3.
+
+---
+
+**Status eksekusi: M4.1 selesai (2026-09-30).** Lanjutan: M4.4
+(egress `meta skuid`), M4.2 (proxy + onboard), M4.3 (aplikasi PoS),
+M4.5 (verifikasi E2E + uji cabut daya).
