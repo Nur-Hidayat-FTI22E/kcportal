@@ -30,6 +30,7 @@ import (
 
 	"kotacloud-portal/internal/pos/printer"
 	posstore "kotacloud-portal/internal/pos/store"
+	posweb "kotacloud-portal/internal/pos/web"
 )
 
 type app struct {
@@ -68,6 +69,13 @@ func main() {
 	}()
 
 	mux := http.NewServeMux()
+	// The cashier UI (web/pos, compiled-in) rides the same loopback
+	// listener: the SPA shell loads without a session (the login page
+	// must render first), everything under /api/ enforces the session
+	// per-handler via a.auth.
+	spa := posweb.Handler()
+	mux.Handle("/assets/", spa)
+	mux.HandleFunc("GET /{$}", spa.ServeHTTP)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
