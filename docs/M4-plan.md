@@ -91,34 +91,42 @@ Batasan arsitektur yang tidak boleh dilanggar:
   → jawaban `pos-cafe skeleton` sampai di browser. 6 unit aktif
   (onboard, proxy, pos-cafe, kcportald, hostapd, dnsmasq).
 
-### M4.3 — pos-cafe aplikasi (est. 2-3 sesi, bagian terbesar)
+### M4.3 — pos-cafe aplikasi — **SELESAI (2026-09-30)**
 
-- [ ] `cmd/pos-cafe` (Go, di-embed statis web/pos React kecil — pola
-  web/admin yang sudah proven):
-  - Auth kasir: PIN argon2id (skema `cashiers.pin_hash`), sesi cookie
-    HttpOnly, lock otomatis.
-  - Shift: buka/tutup (partial unique index `one_open_shift` menolak
-    double — sudah diuji di M0), setoran akhir + selisih.
-  - Order: katalog per kategori, cart, diskon item-level,
-    penomoran struk `YYMMDD-0007` (tabel `counters`, dalam tx).
-  - Bayar: cash (tendered → change_given dihitung) + QRIS manual
-    (reference bebas, konfirmasi kasir). Idempotency-Key pada
-    `POST /orders/{id}/pay` (tabel `idempotency_keys`, request_hash).
-  - Void/refund: wajib role `admin` + alasan → `audit_log_pos`.
-  - **Koneksi DB**: satu `*sql.DB` dengan `SetMaxOpenConns(1)` untuk
-    tulis (DD-12), baca boleh pool terpisah WAL.
-- [ ] Driver printer (paket `internal/pos/printer`):
-  - `usb`: ESC/POS via `/dev/usb/lp0` — Podman device passthrough
-    (`--device /dev/usb/lp0`) + udev rule tag `uaccess` untuk user
-    `kcapps` (file rule di `deploy/pi/pos/99-pos-printer.rules`).
-  - `tcp`: ESC/POS raw ke `10.20.2.20:9100`.
-  - Pemilihan via env `POS_PRINTER=usb|tcp` + `POS_PRINTER_ADDR`
-    (dari `config.AppEntry` IF-03 — field sudah ada di app.yaml).
-  - **print_jobs**: enqueue dalam TRANSAKSI yang sama dengan payments
-    (FR-POS-007); worker retry with backoff, status
-    `queued|printed|failed`, `attempts`+`last_error`.
-- [ ] Struk: format ESC/POS 58mm (PaperMM dari env), cut + logo
-  opsional; reprint dari arsip order.
+- [x] `internal/pos/store` (pos.db): migrations ter-embed,
+  `synchronous=FULL` + SATU koneksi tulis (DD-12/ERR-06); kasir PIN
+  argon2id + verifikasi constant-time; shift (unique index DB menolak
+  dobel-open — 409); order dengan nomor struk per-hari (YYMMDD-0001)
+  di dalam tx; **pembayaran idempoten** (header Idempotency-Key:
+  replay mengembalikan respons tersimpan bertanda `replayed`; key baru
+  pada order paid = 409) yang meng-commit payment + order→paid +
+  **print_jobs** + audit dalam SATU transaksi (FR-POS-007); void
+  admin-only dengan alasan ter-audit.
+- [x] `internal/pos/printer`: renderer ESC/POS 58mm murni (32 kolom,
+  uang rata kanan, non-ASCII dilipat ke '?'); driver usb (/dev/usb/lp*)
+  dan tcp raw 9100; worker antrean dengan backoff (kertas habis tidak
+  menghentikan penjualan — job tetap queued).
+- [x] `cmd/pos-cafe`: sesi cookie HMAC (HttpOnly, SameSite=strict,
+  secret per-boot), API JSON login/me/shift/products/orders/items/pay/
+  void, seed admin pertama-boot via env.
+- [x] Test E2E in-process: seluruh alur + edge (underpay, replay,
+  dobel-bayar, izin void, pin salah, cookie di-tamper, printer worker
+  race-free) — `go test -race` hijau penuh.
+- [x] Verifikasi live di Pi via rantai HTTPS nyata (workstation →
+  proxy TLS → pos-cafe): login admin → shift open → order
+  `260929-0001` → item → bayar tunai (kembalian 4000) → `print_jobs`
+  berisi 1 receipt `queued` (menunggu printer fisik) → audit
+  `order_pay` → replay ter-tandai. `pos.db` hidup di volume
+  `/var/lib/kcportal/pos`.
+
+### M4.3 — sisa kecil (ikut M4.5)
+
+- [ ] UI kasir React (`web/pos`, di-embed) — API JSON sudah lengkap;
+  GUI menyusul dengan pola web/admin.
+- [ ] Printer fisik: uji `--device /dev/usb/lp0` passthrough saat
+  printer USB tersedia; driver tcp tinggal diarahkan ke IP printer
+  sebenarnya (env `POS_PRINTER_ADDR`).
+- [ ] Reprint dari arsip order (endpoint + job `reprint`).
 
 ### M4.4 — Egress enforcement DD-14 — **SELESAI (2026-09-30)**
 
