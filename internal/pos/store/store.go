@@ -71,6 +71,23 @@ func Open(path string) (*DB, error) {
 		if done > 0 {
 			continue
 		}
+		// Adopt pre-versioned databases: if the baseline tables already
+		// exist (created by the pre-M4.3-GUI binary), record 0001 as
+		// applied instead of failing on them.
+		if e.Name() == "0001_base.sql" {
+			var baseline int
+			if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name IN ('categories','products','cashiers','shifts','orders','payments')`).Scan(&baseline); err != nil {
+				db.Close()
+				return nil, err
+			}
+			if baseline == 6 {
+				if _, err := db.Exec(`INSERT INTO schema_migrations (name, applied_at) VALUES ('0001_base.sql', ?)`, time.Now().Unix()); err != nil {
+					db.Close()
+					return nil, err
+				}
+				continue
+			}
+		}
 		raw, err := schemaFS.ReadFile("schema/" + e.Name())
 		if err != nil {
 			db.Close()
