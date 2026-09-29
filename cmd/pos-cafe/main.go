@@ -75,7 +75,10 @@ func main() {
 	// per-handler via a.auth.
 	spa := posweb.Handler()
 	mux.Handle("/assets/", spa)
-	mux.HandleFunc("GET /{$}", spa.ServeHTTP)
+	// Subtree pattern (not /{$}): unknown GET paths fall through to the
+	// SPA shell; /healthz stays more-specific and wins. Non-GET on the
+	// shell paths is rejected by the spa handler itself.
+	mux.HandleFunc("GET /", spa.ServeHTTP)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
