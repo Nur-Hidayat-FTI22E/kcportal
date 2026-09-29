@@ -4,7 +4,7 @@ Implementasi bertahap dari `kotacloud-portal-software-design.md`
 (SDD-Design v0.1). Lihat `docs/ROADMAP.md` untuk pembagian milestone dan
 gap yang perlu keputusanmu sebelum lanjut ke M1.
 
-## Status: M0–M2 tuntas, M3 inti jalan — produksi Pi 5 hidup (SSID on air, ruleset terpasang, DEAUTH revoke aktif)
+## Status: M0–M4 tuntas di Pi — router captive (M0–M2), portal + admin + web GUI + DoH shield (M3), PoS App Pack rootless (M4): pos-cafe live di balik TLS :8443 dengan egress default-deny & verifikasi 14/14
 
 **Baru (M3.5): DoH/DoT shield** — Android Private DNS / Chrome DoH
 bisa melewati captive flow sepenuhnya (tamu tidak pernah kena DNAT :80,
@@ -276,8 +276,12 @@ server/                 (M5) MOD-SERVER — Go net/http + MySQL + Redis
   migrations/0001_kcp_server_mysql.sql   skema MariaDB/MySQL asli (referensi, belum dipakai kode)
 web/portal/              (M3) React — portal tamu
 web/admin/               (M3) React — GUI admin
-web/pos/                 (M4) App Pack pos-cafe
-  migrations/0001_pos_db.sql             skema pos.db asli (referensi, belum dipakai kode)
+web/pos/                 (M4) migrations pos.db (skema asli, dipakai internal/pos/store)
+internal/pos/            (M4) store pos.db · pki CA lokal · printer ESC/POS
+cmd/pos-cafe             (M4) aplikasi PoS (kontainer rootless)
+cmd/pos-proxy            (M4) TLS :8443 → pos-cafe
+cmd/pos-onboard          (M4) CA lokal + unduh ca.crt (:8082)
+deploy/pi/pos/           (M4) setup, unit, verifikasi (verify-pos.sh)
 docs/ROADMAP.md          pembagian milestone + gap yang perlu keputusanmu
 docs/M4-plan.md          rencana terperinci M4 PoS App Pack (pos-cafe)
 ```

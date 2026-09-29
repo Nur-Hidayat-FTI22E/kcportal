@@ -20,6 +20,10 @@ Network=host
 UserNS=keep-id:uid=1000,gid=1000
 Volume=/var/lib/kcportal/pos:/data
 Environment=POS_ADDR=127.0.0.1:8444
+# First-boot admin seed (lab): consumed only while cashiers is empty.
+# Production replaces this with an onboarding UI (M4.5+).
+Environment=POS_SEED_ADMIN=admin
+Environment=POS_SEED_ADMIN_PIN=kcpadmin-2026
 HealthCmd=curl -fsS http://127.0.0.1:8444/healthz || exit 1
 HealthInterval=30s
 HealthRetries=3

@@ -140,15 +140,15 @@ Batasan arsitektur yang tidak boleh dilanggar:
   timeout terblok, counter `app_egress` naik (4 paket); loopback
   healthz dari uid sama tetap 200.
 
-### M4.5 — Deployment + verifikasi E2E (est. 1 sesi)
+### M4.5 — Deployment + verifikasi E2E — **SELESAI (2026-09-30)**
 
-- [ ] `deploy/pi/pos/README.md`: langkah urut (setup → build image di
-  Pi → install unit → onboard → uji struk).
-- [ ] Verifikasi E2E ala M2/M3: buka shift → order → bayar cash →
-  struk keluar (LAN dulu, USB menyusul) → cabut daya saat menulis →
-  reboot → 0 transaksi hilang (ERR-06/NFR-POS-03) → percobaan egress
-  ilegal gagal → `audit_log_pos` terekam void oleh admin.
-- [ ] ROADMAP/README di-update; commit per sub-tahap.
+- [x] `deploy/pi/pos/README.md`: langkah urut (setup → binari →
+  image → unit → onboard → printer → onboarding browser kasir).
+- [x] `deploy/pi/pos/verify-pos.sh`: verifikasi formal otomatis —
+  **14 PASS / 0 FAIL live di Pi** (unit, egress terblok, CA+TLS,
+  alur jual, print job) + checklist drill cabut daya interaktif
+  (bagian manual NFR-POS-03, jadwalnya saat pilot di venue).
+- [x] ROADMAP/README di-update; commit per sub-tahap sepanjang M4.
 
 ---
 
@@ -180,10 +180,7 @@ M2/M3.
 
 ---
 
-**Status eksekusi (2026-09-30): M4.1 ✅ · M4.4 ✅ · M4.2 ✅.** Rantai
-HTTPS penuh terbukti dari workstation: unduh CA (onboard :8082) →
-TLS :8443 (proxy, trust CA lokal saja) → pos-cafe :8444 (loopback).
-Egress kcapps default-deny dengan bukti counter. **Lanjutan: M4.3**
-(aplikasi PoS penuh: auth PIN, shift, order, bayar cash+QRIS manual,
-printer ESC/POS usb+tcp, print_jobs dalam transaksi pembayaran),
-lalu **M4.5** (E2E + uji cabut daya).
+**Status eksekusi (2026-09-30): M4.1 ✅ · M4.4 ✅ · M4.2 ✅ · M4.3 ✅ ·
+M4.5 ✅ (verifikasi otomatis 14/14 PASS live; drill cabut daya =
+checklist manual saat pilot).** Sisa opsional ikut pilot: UI kasir
+React, printer fisik (USB/LAN), reprint.

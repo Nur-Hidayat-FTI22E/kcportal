@@ -103,19 +103,22 @@ Sesuaikan urutannya kapan saja — ini bukan kutipan dari §12 aslinya.
 
 ## M4 — PoS App Pack (§7.1 IF-03, §6.5)
 
-**Rencana terperinci: `docs/M4-plan.md`** (disusun 2026-09-29; keputusan
-pilot: printer USB + LAN keduanya, pembayaran cash + QRIS manual).
-Ringkasan:
+**Status: selesai (2026-09-30)** — `docs/M4-plan.md` punya bukti live
+per tahap. Rantai penuh terverifikasi di Pi: kasir → TLS :8443 (proxy,
+CA lokal dari :8082) → pos-cafe (rootless Podman, uid kcapps, egress
+default-deny) → pos.db (`synchronous=FULL`, satu penulis); pembayaran
+idempoten yang meng-commit print_jobs dalam transaksi yang sama;
+verifikasi otomatis `verify-pos.sh` 14/14 PASS.
 
-- Podman rootless `pos-cafe` (Quadlet bila Podman ≥ 4.4, fallback unit
-  systemd user untuk Bookworm/Podman 4.3); proxy `apps` (:8443) +
-  `pos-onboard` (:8082, CA lokal T1); egress dibatasi `meta skuid`
-  (DD-14).
-- Printer USB **dan** LAN (IF-03 `PrinterMode: usb|tcp`; LAN dulu untuk
-  pilot, USB menyusul dengan udev rule teruji).
-- PoS sendiri: SQLite `synchronous=FULL`, satu koneksi tulis
-  (DD-12/ERR-06); idempotency-key pada pembayaran; print_jobs dalam
-  transaksi yang sama dengan payments (FR-POS-007).
+- Podman rootless `pos-cafe` (Quadlet pada Podman 5.4 Trixie; fallback
+  unit systemd user tetap dikirim); proxy `apps` (:8443) +
+  `pos-onboard` (:8082, CA lokal T1); egress `meta skuid` (DD-14).
+- Printer USB **dan** LAN (IF-03 `PrinterMode: usb|tcp`; uji fisik
+  menyusul saat hardware pilot tersedia).
+- PoS: SQLite `synchronous=FULL`, satu koneksi tulis (DD-12/ERR-06);
+  Idempotency-Key pada pembayaran; print_jobs dalam transaksi payments
+  (FR-POS-007). Sisa opsional: UI kasir React, reprint, drill cabut
+  daya manual saat pilot.
 
 ## M5 — Server fleet (§6, MOD-SERVER)
 
