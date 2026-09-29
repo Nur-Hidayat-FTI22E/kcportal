@@ -134,6 +134,9 @@ func main() {
 		}
 		_ = created // first call creates + stores it; printing is the point
 		fmt.Printf("api-token: %s\n", tok)
+		// Print-and-exit: the running daemon serves the API; a second
+		// full instance here would race it for the ruleset.
+		return
 	}
 
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))

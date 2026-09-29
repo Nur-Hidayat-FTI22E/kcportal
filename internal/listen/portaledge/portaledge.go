@@ -83,6 +83,13 @@ func New(cfg Config, db *sql.DB, ctl netctl.NetCtl, actor *core.Actor, ps *porta
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	// OS captive probes land on paths like /generate_204 (Android),
+	// /hotspot-detect.html (Apple), /ncsi.txt (Windows), /connecttest.txt
+	// (old Windows). Any non-expected answer makes the OS open its
+	// captive-portal login window — we redirect to the consent page so
+	// the phone shows OUR form instead of a bare error (§5 FR-CPT-003:
+	// the portal must pop up without the guest typing anything).
+	mux.HandleFunc("/", s.handleProbe)
 	s.srv = &http.Server{
 		Addr:              cfg.Addr,
 		Handler:           mux,
@@ -90,6 +97,12 @@ func New(cfg Config, db *sql.DB, ctl netctl.NetCtl, actor *core.Actor, ps *porta
 		IdleTimeout:       30 * time.Second,
 	}
 	return s
+}
+
+// handleProbe redirects every OS captive probe (and any stray GET the
+// DNAT pushed here) to the consent page.
+func (s *Server) handleProbe(w http.ResponseWriter, r *http.Request) {
+	http.Redirect(w, r, "/", http.StatusFound)
 }
 
 // freebindListenConfig mirrors waitinghttp (§2.4: these listeners bind
