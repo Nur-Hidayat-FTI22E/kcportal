@@ -76,12 +76,23 @@ func Open(path string) (*DB, error) {
 			db.Close()
 			return nil, err
 		}
+		// PRAGMA lines (synchronous/journal in the original dump) cannot
+		// run inside a transaction — the DSN owns them. Strip them so the
+		// migration executes cleanly as one tx.
+		var stmts []string
+		for _, line := range strings.Split(string(raw), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "PRAGMA ") || strings.HasPrefix(trimmed, "pragma ") {
+				continue
+			}
+			stmts = append(stmts, line)
+		}
 		tx, err := db.Begin()
 		if err != nil {
 			db.Close()
 			return nil, err
 		}
-		if _, err := tx.Exec(string(raw)); err != nil {
+		if _, err := tx.Exec(strings.Join(stmts, "\n")); err != nil {
 			tx.Rollback()
 			db.Close()
 			return nil, fmt.Errorf("pos store: migrate %s: %w", e.Name(), err)
