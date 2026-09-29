@@ -24,9 +24,9 @@ Environment=POS_ADDR=127.0.0.1:8444
 # Production replaces this with an onboarding UI (M4.5+).
 Environment=POS_SEED_ADMIN=admin
 Environment=POS_SEED_ADMIN_PIN=kcpadmin-2026
-HealthCmd=curl -fsS http://127.0.0.1:8444/healthz || exit 1
-HealthInterval=30s
-HealthRetries=3
+# NO container healthcheck: the scratch image has no shell/curl, and a
+# failing healthcheck run fails the whole unit (observed live, exit
+# 2/125). Liveness = systemd Restart=on-failure + the proxy's 502 view.
 [Service]
 Restart=on-failure
 RestartSec=5
