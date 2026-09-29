@@ -25,7 +25,11 @@ gap yang perlu keputusanmu sebelum lanjut ke M1.
   zones + policy (PUT zona Admin otomatis masuk commit-confirm dan
   endpoint `/changes/pending` + `/changes/confirm` menampilkan/
   menerima trialnya — IF-02), audit (hash chain, read-only), voucher
-  (generate/list). Auth bearer token yang di-generate sekali di
+  (generate/list), dan setup wizard `/network/wan` (GET posture:
+  deteksi iface/uplink/bridge; POST {wan:{mode}, iface}: catat niat
+  ke settings `wan_config` + audit + app.yaml — **tanpa** sentuh
+  kernel; bridging uplink tetap milik `kcp-net-apply.sh`, DD-15).
+  Auth bearer token yang di-generate sekali di
   settings dan ditampilkan via `kcportald -api-token`; listener
   default `127.0.0.1:8083` (buka lewat SSH tunnel / mgmt plane).
 

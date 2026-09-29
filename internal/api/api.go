@@ -19,6 +19,8 @@
 //	GET  /api/v1/audit?limit=         hash-chained rows (read-only)
 //	POST /api/v1/vouchers             {count, duration_s, max_uses}
 //	GET  /api/v1/vouchers
+//	GET  /api/v1/network/wan          posture view (setup wizard, read-only)
+//	POST /api/v1/network/wan          {wan:{mode}, iface} — records intent (no kernel writes)
 //
 // Auth: Authorization: Bearer <token>. The token is generated on first
 // boot into state.db settings (32 random bytes hex) and shown once by
@@ -95,6 +97,10 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/audit", s.wrap(s.handleAudit))
 	mux.HandleFunc("POST /api/v1/vouchers", s.wrap(s.handleCreateVouchers))
 	mux.HandleFunc("GET /api/v1/vouchers", s.wrap(s.handleListVouchers))
+	// Setup wizard (M3, §7.2): read-only posture view + recorded WAN
+	// posture. Kernel-facing reconfig stays with kcp-net-apply.sh.
+	mux.HandleFunc("GET /api/v1/network/wan", s.wrap(s.HandleWanGET))
+	mux.HandleFunc("POST /api/v1/network/wan", s.wrap(s.HandleWanPOST))
 	return s.auth(mux)
 }
 

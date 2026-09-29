@@ -66,7 +66,10 @@ Sesuaikan urutannya kapan saja — ini bukan kutipan dari §12 aslinya.
   sesi (`guest_sessions`, §8), `/state` polling.
 - [x] `internal/api`: `/api/v1/devices|guests|zones|changes|audit|vouchers`
   dengan bearer token (settings, tampil via `-api-token`).
-- [ ] Endpoint setup wizard + `/network/wan` (butuh runtimecfg WAN).
+- [x] Endpoint setup wizard + `/network/wan` (2026-09-29): GET posture
+  view (deteksi iface/uplink/bridge) + POST record intent (settings
+  `wan_config` + audit + app.yaml); kernel reconfig tetap manual via
+  `kcp-net-apply.sh` (DD-15).
 - [ ] `web/portal` + `web/admin` (React, statis, di-embed) — halaman
   Go saat ini fungsional tapi minimal.
 - [ ] Sync pemasaran ke kcp-server (client_ref) — M5 `portal.sync`,

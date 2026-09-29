@@ -173,7 +173,7 @@ func PutZonePolicy(db *sql.DB, zoneID int, internet bool, vpnRequired bool, allo
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("store: zone %d policy: %w", zoneID, ErrNotFound)
 	}
-	return recordAudit(db, actor, "zone.policy", fmt.Sprintf("zone:%d", zoneID), string(jsonAllows), now)
+	return RecordAudit(db, actor, "zone.policy", fmt.Sprintf("zone:%d", zoneID), string(jsonAllows), now)
 }
 
 func boolToInt(b bool) int {
@@ -281,7 +281,7 @@ func ApproveDevice(db *sql.DB, mac string, zoneID int, note string, actor string
 		mac, zoneID, now.Unix(), now.Unix(), actor, now.Unix()); err != nil {
 		return fmt.Errorf("store: approve device %s: %w", mac, err)
 	}
-	return recordAudit(db, actor, "device.approve", mac, note, now)
+	return RecordAudit(db, actor, "device.approve", mac, note, now)
 }
 
 // BlockDevice flips a device to 'blocked' (admin moderation).
@@ -293,7 +293,7 @@ func BlockDevice(db *sql.DB, mac, actor string, now time.Time) error {
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("store: block device %s: %w", mac, ErrNotFound)
 	}
-	return recordAudit(db, actor, "device.block", mac, "", now)
+	return RecordAudit(db, actor, "device.block", mac, "", now)
 }
 
 // ReserveLease pins mac→ip in ip_leases (DD-03 IPAM; reserved rows never
@@ -520,7 +520,10 @@ func GetSetting(db *sql.DB, key string) (string, error) {
 // recordAudit appends one hash-chained audit row (§8 audit_log: SHA-256
 // chain over prev_hash; M1 keeps the chain shape, the hash function
 // plugging into it is a hardening task — for now SHA-256 directly).
-func recordAudit(db *sql.DB, actor, action, target, diff string, now time.Time) error {
+// RecordAudit appends one hash-chained audit row; exported so the
+// settings-level mutations that bypass the actor (wan posture) leave
+// the same tamper-evident trail as actor commands.
+func RecordAudit(db *sql.DB, actor, action, target, diff string, now time.Time) error {
 	var prev []byte
 	if err := db.QueryRow(`SELECT hash FROM audit_log ORDER BY id DESC LIMIT 1`).Scan(&prev); err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
