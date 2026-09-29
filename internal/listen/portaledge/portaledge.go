@@ -16,11 +16,9 @@ import (
 	"context"
 	"crypto/subtle"
 	"database/sql"
-	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"html/template"
 	"log/slog"
 	"net"
 	"net/http"
@@ -33,20 +31,17 @@ import (
 	"golang.org/x/sys/unix"
 
 	"kotacloud-portal/internal/core"
+	"kotacloud-portal/internal/listen/portaledge/web"
 	"kotacloud-portal/internal/net/netctl"
 	"kotacloud-portal/internal/portal"
 	"kotacloud-portal/internal/store"
 )
-
-//go:embed tmpl/*.html
-var tmplFS embed.FS
 
 // Config tunes the portal-edge listener.
 type Config struct {
 	Addr        string        // 10.20.3.1:8080
 	GuestBridge string        // br-guest — identity resolution interface
 	TTL         time.Duration // default session length
-	TermsHTML   string        // optional custom terms paragraph
 }
 
 // Server is the portal-edge HTTP listener (§2.4 listener table).
@@ -76,7 +71,20 @@ func New(cfg Config, db *sql.DB, ctl netctl.NetCtl, actor *core.Actor, ps *porta
 	}
 	s := &Server{Cfg: cfg, DB: db, Ctl: ctl, Actor: actor, Portal: ps, Log: log}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /{$}", s.handleHome)
+	// The captive page is the embedded React SPA (package web, built
+	// from web/portal). GET / serves the shell (no-store) — it renders
+	// the consent form / authorized screen and talks to /state. The
+	// explicit /assets/ route must come before the catch-all probe
+	// handler below, or the hashed bundle files would be 302'd to /
+	// like the OS probes.
+	spa := web.Handler()
+	mux.Handle("/assets/", spa)
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		// The shell is identity-agnostic (the SPA discovers everything
+		// via /state), so no identify() here: a guest whose neighbor
+		// entry lags still gets the page and its retry loop.
+		spa.ServeHTTP(w, r)
+	})
 	mux.HandleFunc("POST /{$}", s.handleConsent)
 	mux.HandleFunc("GET /state", s.handleState)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
@@ -219,34 +227,6 @@ func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 		"authorized": view.Authorized,
 		"expires_at": view.ExpiresAt,
 		"state":      view.State,
-	})
-}
-
-// handleHome renders the captive page (consent form / status).
-func (s *Server) handleHome(w http.ResponseWriter, r *http.Request) {
-	mac, err := s.identify(r)
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	view, err := portal.View(s.DB, mac, time.Now())
-	if err != nil {
-		writeErr(w, err)
-		return
-	}
-	tpl, terr := template.ParseFS(tmplFS, "tmpl/portal.html")
-	if terr != nil {
-		writeErr(w, terr)
-		return
-	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	_ = tpl.Execute(w, map[string]any{
-		"MAC":        view.MAC,
-		"Authorized": view.Authorized,
-		"ExpiresAt":  view.ExpiresAt.Format("15:04"),
-		"State":      view.State,
-		"Terms":      s.Cfg.TermsHTML,
 	})
 }
 

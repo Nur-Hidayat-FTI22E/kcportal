@@ -22,14 +22,14 @@ log. `dist/` di-commit sehingga CI tetap Go-only; dev mode pakai
   (`client_ref = hex(HMAC-SHA256(key, mac))` — MAC tak pernah keluar
   unit), encoder payload consent deterministik, dan read model
   `View()` yang menggabungkan devices + guest_sessions.
-- `internal/listen/portaledge` — captive portal di 10.20.3.1:8080
-  (menggantikan stub): identitas klien **hanya** dari IP sumber →
-  neighbor table (DD-10) + cross-check binding SEC-012; form consent
-  (syarat wajib, pemasaran opsional — FR-CPT-002), voucher opsional,
-  dan `/state` polling. Sesi dibuka lewat state actor
-  (`AuthorizeGuest` kini membawa metadata consent + kode voucher;
-  voucher dikonsumsi **di dalam** langkah penulis tunggal — kode
-  habis/invalid gagal tanpa membuka sesi).
+- `internal/listen/portaledge` — captive portal di 10.20.3.1:8080:
+  identitas klien **hanya** dari IP sumber → neighbor table (DD-10) +
+  cross-check binding SEC-012; halaman consent kini SPA React
+  (`web/portal`, di-embed via `internal/listen/portaledge/web` — pola
+  sama dengan web/admin, kontrak kawat tak berubah: `POST /` form,
+  `/state` polling, catch-all 302 probe; error inline di halaman),
+  voucher opsional yang dikonsumsi **di dalam** langkah penulis
+  tunggal — kode habis/invalid gagal tanpa membuka sesi.
 - `internal/api` — REST admin §7.2 (subset yang sudah dilayani
   state.db): devices (list/approve/block), guests (list/revoke),
   zones + policy (PUT zona Admin otomatis masuk commit-confirm dan

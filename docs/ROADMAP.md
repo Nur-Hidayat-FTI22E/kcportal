@@ -75,8 +75,12 @@ Sesuaikan urutannya kapan saja — ini bukan kutipan dari §12 aslinya.
   (127.0.0.1:8083) — shell tanpa token, `/api/*` tetap bearer;
   `dist/` di-commit agar CI Go-only. Fitur: wizard WAN, devices,
   tamu, voucher, zona (banner commit-confirm), audit.
-- [ ] `web/portal` (halaman tamu React) — halaman Go di portaledge
-  saat ini fungsional tapi minimal.
+- [x] `web/portal` (2026-09-29): halaman consent React + Vite + TS,
+  di-embed via `internal/listen/portaledge/web` (pola sama dengan
+  web/admin; `dist/` di-commit). Kontrak kawat tak berubah: `GET /`
+  shell (tanpa identitas — SPA menanyakan `/state`), `POST /` form
+  consent, catch-all 302 probe; error terms/voucher kini inline di
+  halaman, bukan JSON mentah. Template Go `tmpl/portal.html` dihapus.
 - [ ] Sync pemasaran ke kcp-server (client_ref) — M5 `portal.sync`,
   pseudonym sudah dicetak di sini.
 
