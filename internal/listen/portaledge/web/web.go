@@ -11,6 +11,7 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	"strings"
 )
 
 //go:embed all:dist
@@ -30,7 +31,10 @@ func Handler() http.Handler {
 			return
 		}
 		p := r.URL.Path
-		if _, serr := fs.Stat(sub, p); serr != nil {
+		// io/fs paths are unrooted — a leading "/" makes fs.Stat fail on
+		// EVERY path, which would send real asset requests into the SPA
+		// fallback (the browser would get index.html instead of the JS).
+		if _, serr := fs.Stat(sub, strings.TrimPrefix(p, "/")); serr != nil {
 			r.URL.Path = "/" // SPA fallback
 		}
 		// The shell must not be cached: a stale index.html would

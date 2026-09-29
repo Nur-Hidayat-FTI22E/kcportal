@@ -36,6 +36,13 @@ func TestServesIndexAndAssets(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("GET /assets/%s -> %d", e.Name(), rec.Code)
 		}
+		// Guard against the fs.Stat-unrooted-path regression: a real
+		// asset falling into the SPA fallback would come back as the
+		// HTML shell instead of the bundle.
+		if strings.Contains(rec.Body.String(), `id="root"`) {
+			t.Fatalf("asset %s came back as the HTML shell (content-type %q)",
+				e.Name(), rec.Header().Get("Content-Type"))
+		}
 		served++
 	}
 	if served < 2 {
