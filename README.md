@@ -279,6 +279,7 @@ web/admin/               (M3) React — GUI admin
 web/pos/                 (M4) App Pack pos-cafe
   migrations/0001_pos_db.sql             skema pos.db asli (referensi, belum dipakai kode)
 docs/ROADMAP.md          pembagian milestone + gap yang perlu keputusanmu
+docs/M4-plan.md          rencana terperinci M4 PoS App Pack (pos-cafe)
 ```
 
 ## Catatan jujur soal batasan build di sandbox ini

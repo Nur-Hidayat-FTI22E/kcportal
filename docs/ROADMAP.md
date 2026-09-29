@@ -103,10 +103,19 @@ Sesuaikan urutannya kapan saja — ini bukan kutipan dari §12 aslinya.
 
 ## M4 — PoS App Pack (§7.1 IF-03, §6.5)
 
-- Podman/Quadlet rootless `pos-cafe`; proxy `apps` (:8443) + `pos-onboard`
-  (:8082, CA lokal T1); egress dibatasi `meta skuid` (DD-14).
-- Printer USB atau LAN (lihat gap #2 di atas).
-- PoS sendiri: SQLite `synchronous=FULL`, satu koneksi tulis (DD-12/ERR-06).
+**Rencana terperinci: `docs/M4-plan.md`** (disusun 2026-09-29; keputusan
+pilot: printer USB + LAN keduanya, pembayaran cash + QRIS manual).
+Ringkasan:
+
+- Podman rootless `pos-cafe` (Quadlet bila Podman ≥ 4.4, fallback unit
+  systemd user untuk Bookworm/Podman 4.3); proxy `apps` (:8443) +
+  `pos-onboard` (:8082, CA lokal T1); egress dibatasi `meta skuid`
+  (DD-14).
+- Printer USB **dan** LAN (IF-03 `PrinterMode: usb|tcp`; LAN dulu untuk
+  pilot, USB menyusul dengan udev rule teruji).
+- PoS sendiri: SQLite `synchronous=FULL`, satu koneksi tulis
+  (DD-12/ERR-06); idempotency-key pada pembayaran; print_jobs dalam
+  transaksi yang sama dengan payments (FR-POS-007).
 
 ## M5 — Server fleet (§6, MOD-SERVER)
 
