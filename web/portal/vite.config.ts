@@ -12,7 +12,7 @@ export default defineConfig({
   build: {
     // Emit straight into the Go embed package (portaledge's captive
     // page): npm run build refreshes the bundle the daemon compiles in.
-    outDir: "src/webportal/dist",
+    outDir: "../../internal/listen/portaledge/web/dist",
     emptyOutDir: true,
     sourcemap: false,
   },
