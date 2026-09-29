@@ -1,0 +1,31 @@
+# pos-cafe container image — OFFLINE-FIRST: the binary is built on the
+# Pi host by build-pos-image.sh (the Go toolchain already lives there),
+# and this Containerfile only assembles a FROM-scratch image — `scratch`
+# is built into podman, so NOTHING is pulled from a registry at deploy
+# time.
+#
+# Build (from the repo root, ON the Pi):
+#   deploy/pi/pos/build-pos-image.sh        # does both steps
+#
+# Run contract (the unit/quadlet wires this):
+#   --network=host  so the DD-14 egress chain can match the connection
+#   --userns=keep-id:uid=1000,gid=1000
+#                   container root maps to the unprivileged kcapps
+#                   user; files in /data stay owned by kcapps on host
+#   -v /var/lib/kcportal/pos:/data   pos.db + (M4.2) CA live there
+#
+# No container healthcheck in M4.1: a scratch image has no shell/curl
+# to run one with. Liveness is systemd Restart=on-failure (process
+# death) plus the M4.2 proxy marking the app down when :8444 refuses.
+#
+# 8444 is deliberately NOT in the nft allow-list: clients reach the
+# app only through the M4.2 apps proxy (TLS :8443), which is a host
+# process and unaffected by the skuid match.
+FROM scratch
+COPY bin/pos-cafe /usr/local/bin/pos-cafe
+COPY passwd /etc/passwd
+ENV POS_ADDR=0.0.0.0:8444
+VOLUME /data
+USER 1000:1000
+EXPOSE 8444
+ENTRYPOINT ["/usr/local/bin/pos-cafe"]

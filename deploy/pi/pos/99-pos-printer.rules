@@ -1,0 +1,7 @@
+# udev: USB receipt printers (ESC/POS, /dev/usb/lp*) get uaccess so the
+# logged-in/local user — here the kcapps service user via systemd's
+# uaccess ACL mechanism — can open the device without root. The M4.4
+# egress rules do NOT cover local device access; this rule is what
+# makes the USB printer driver work inside the rootless container.
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTRS{bInterfaceClass}=="07", TAG+="uaccess"
+KERNEL=="lp[0-9]*", TAG+="uaccess"

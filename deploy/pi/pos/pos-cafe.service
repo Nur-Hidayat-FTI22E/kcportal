@@ -1,0 +1,31 @@
+# pos-cafe systemd USER unit — the guaranteed path for Debian
+# Bookworm (Podman 4.3 < Quadlet's 4.4). Installed as
+# ~/.config/systemd/user/pos-cafe.service for user kcapps, then
+# `systemctl --user enable --now pos-cafe`. pos-setup.sh picks this
+# automatically when quadlet is unavailable; the quadlet fast-path
+# (pos-cafe.container) replaces it when Podman >= 4.4 is present.
+#
+# Same run contract as the quadlet: host network, keep-id userns,
+# /data volume, restart on failure.
+
+[Unit]
+Description=kotacloud PoS App Pack (pos-cafe)
+After=network-online.target
+
+[Service]
+ExecStartPre=-/usr/bin/podman rm -f pos-cafe
+ExecStart=/usr/bin/podman run --name pos-cafe \
+  --network=host \
+  --userns=keep-id:uid=1000,gid=1000 \
+  --volume /var/lib/kcportal/pos:/data \
+  --env POS_ADDR=0.0.0.0:8444 \
+  --restart-policy=no \
+  --health-cmd "curl -fsS http://127.0.0.1:8444/healthz || exit 1" \
+  --health-interval 30s --health-retries 3 \
+  localhost/pos-cafe:m4
+ExecStop=/usr/bin/podman stop -t 5 pos-cafe
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

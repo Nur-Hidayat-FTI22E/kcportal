@@ -1,0 +1,31 @@
+# pos-cafe Quadlet (Podman >= 4.4). Installed as
+# ~/.config/containers/systemd/pos-cafe.container for user kcapps;
+# systemd generates pos-cafe.service from it at daemon-reload. This is
+# the FAST PATH — pos-setup.sh falls back to a plain user unit when
+# the Pi's Podman is < 4.4 (Debian Bookworm ships 4.3); the fallback
+# unit lives in this same directory and is the guaranteed-tested path.
+#
+# Network=host is deliberate (docs/M4-plan.md): the DD-14 egress chain
+# matches the connection's skuid only for host-network processes, and
+# the app has no ports of its own to publish — clients come through
+# the M4.2 apps proxy.
+#
+# The volume host path must pre-exist and be owned by kcapps
+# (pos-setup.sh does both), otherwise rootless podman cannot mount it.
+
+[Container]
+Image=localhost/pos-cafe:m4
+ContainerName=pos-cafe
+Network=host
+UserNS=keep-id:uid=1000,gid=1000
+Volume=/var/lib/kcportal/pos:/data
+Environment=POS_ADDR=0.0.0.0:8444
+Exec=pos-cafe
+HealthCmd=curl -fsS http://127.0.0.1:8444/healthz || exit 1
+HealthInterval=30s
+HealthRetries=3
+[Service]
+Restart=on-failure
+RestartSec=5
+[Install]
+WantedBy=default.target
