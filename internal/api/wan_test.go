@@ -11,10 +11,6 @@ import (
 	"kotacloud-portal/internal/store/storetest"
 )
 
-// noWriteYAML stubs the app.yaml seam — a test box must never touch
-// /etc/kcportal (the real implementation shells out to python3).
-func noWriteYAML(wanConfig) error { return nil }
-
 func TestWanGetDefaultsAndDetection(t *testing.T) {
 	_, h := newTestServer(t)
 	rec := doJSON(t, h, "GET", "/api/v1/network/wan", "test-token-1", "")
@@ -43,9 +39,6 @@ func TestWanGetDefaultsAndDetection(t *testing.T) {
 
 func TestWanPostPersistsAndAudits(t *testing.T) {
 	_, h := newTestServer(t)
-	writeWanYAMLFn = noWriteYAML
-	t.Cleanup(func() { writeWanYAMLFn = writeWanYAML })
-
 	rec := doJSON(t, h, "POST", "/api/v1/network/wan", "test-token-1",
 		`{"wan":{"mode":"dhcp"},"iface":"lo"}`)
 	if rec.Code != http.StatusOK {
@@ -69,8 +62,6 @@ func TestWanPostPersistsAndAudits(t *testing.T) {
 
 func TestWanPostValidation(t *testing.T) {
 	_, h := newTestServer(t)
-	writeWanYAMLFn = noWriteYAML
-	t.Cleanup(func() { writeWanYAMLFn = writeWanYAML })
 
 	// Invalid mode -> 400.
 	if rec := doJSON(t, h, "POST", "/api/v1/network/wan", "test-token-1",

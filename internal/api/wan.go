@@ -7,9 +7,13 @@
 // What it is deliberately NOT: a kernel reconfigurer. Moving eth0 into
 // br-lan, PPPoE dialing and addressing bridges can cut the operator's
 // management access, so they stay with deploy/pi/kcp-net-apply.sh and
-// the operator's hands (DD-15: manual-and-reviewed, fail-closed). The
-// API only records intent and reports reality; the daemon consumes the
-// recorded values on its next boot.
+// the operator's hands (DD-15: manual-and-reviewed, fail-closed). It
+// also does not rewrite app.yaml: the daemon runs as the unprivileged
+// kcportal user, so a root-owned app.yaml is unwritable from here by
+// construction. Instead POST only records intent into state.db
+// settings (+ audit); the daemon re-reads the posture at its next boot
+// and it wins over a stale app.yaml (state.db is the operational
+// source of truth, §4.3 discipline).
 package api
 
 import (
@@ -17,7 +21,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -74,12 +77,10 @@ func (s *Server) HandleWanGET(w http.ResponseWriter, _ *http.Request) (any, erro
 	return out, nil
 }
 
-// writeWanYAMLFn is a seam for tests — the real implementation shells
-// out to python3 against /etc/kcportal/app.yaml, which a test box must
-// never touch.
-var writeWanYAMLFn = writeWanYAML
-
 // HandleWanPOST records the WAN posture (§7.2 POST /network/wan):
+// settings row for the next boot + audited diff row. It does NOT touch
+// the kernel (see the package comment for why) — bridging the uplink
+// remains kcp-net-apply.sh's job.
 // settings row for the running system, audited diff row, app.yaml for
 // the next boot. It does NOT touch the kernel (see the package comment
 // for why) — bridging the uplink remains kcp-net-apply.sh's job.
@@ -124,10 +125,7 @@ func (s *Server) HandleWanPOST(w http.ResponseWriter, r *http.Request) (any, err
 		fmt.Sprintf("%s -> %s", prev, cfg), time.Now()); err != nil {
 		return nil, err
 	}
-	if err := writeWanYAMLFn(req.WAN); err != nil {
-		s.Log.Warn("app.yaml WAN update failed — settings row still authoritative", "err", err)
-	}
-	s.Log.Info("wan posture recorded", "mode", req.WAN.Mode, "iface", req.WAN.Iface)
+	s.Log.Info("wan posture recorded — effective at next boot", "mode", req.WAN.Mode, "iface", req.WAN.Iface)
 	return map[string]any{"ok": true, "wan": req.WAN}, nil
 }
 
@@ -148,32 +146,4 @@ func probeUplink() map[string]any {
 	_ = c.Close()
 	out["ok"] = true
 	return out
-}
-
-// writeWanYAML merges the WAN posture into /etc/kcportal/app.yaml via a
-// python3 one-liner: PyYAML round-trips comments better than hand-grown
-// string surgery, and it is best-effort anyway — the settings row
-// written a moment earlier is the authoritative record.
-func writeWanYAML(wc wanConfig) error {
-	_, err := exec.Command("python3", "-c", `
-import sys, yaml
-p = "/etc/kcportal/app.yaml"
-try:
-    with open(p) as f:
-        d = yaml.safe_load(f) or {}
-except FileNotFoundError:
-    d = {}
-d.setdefault("wan", {})
-d["wan"]["mode"] = sys.argv[1]
-if len(sys.argv) > 2 and sys.argv[2]:
-    d["wan"]["iface"] = sys.argv[2]
-elif "iface" in d.get("wan", {}):
-    del d["wan"]["iface"]
-with open(p, "w") as f:
-    yaml.safe_dump(d, f, default_flow_style=False, sort_keys=False)
-`, wc.Mode, wc.Iface).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("wan: app.yaml update: %w", err)
-	}
-	return nil
 }

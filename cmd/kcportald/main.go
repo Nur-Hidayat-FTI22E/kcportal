@@ -8,6 +8,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -158,6 +159,29 @@ func main() {
 		os.Exit(1)
 	}
 	defer db.Close()
+
+	// Boot-time WAN override (setup wizard, §7.2 POST /network/wan): a
+	// recorded wan_config setting wins over a stale app.yaml — state.db
+	// is the operational source of truth (§4.3 discipline) and the
+	// daemon (unprivileged kcportal) could not have rewritten app.yaml
+	// itself. Best-effort: a malformed row only downgrades to the yaml.
+	if raw, gerr := store.GetSetting(db, "wan_config"); gerr == nil && raw != "" {
+		var wc struct {
+			Mode  string `json:"mode"`
+			Iface string `json:"iface"`
+		}
+		if jerr := json.Unmarshal([]byte(raw), &wc); jerr == nil {
+			switch wc.Mode {
+			case "pppoe", "dhcp", "static":
+				if cfg.WAN.Mode != wc.Mode {
+					cfg.WAN.Mode = wc.Mode
+					log.Info("wan posture from settings overrides app.yaml", "mode", wc.Mode)
+				}
+			default:
+				log.Warn("wan_config setting has an invalid mode — ignored", "raw", raw)
+			}
+		}
+	}
 
 	// Seed/update the zone rows from config (idempotent upsert, boot-time
 	// only — the Actor never writes zones).
