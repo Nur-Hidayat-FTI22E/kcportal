@@ -75,10 +75,12 @@ func main() {
 	// per-handler via a.auth.
 	spa := posweb.Handler()
 	mux.Handle("/assets/", spa)
-	// Subtree pattern (not /{$}): unknown GET paths fall through to the
-	// SPA shell; /healthz stays more-specific and wins. Non-GET on the
-	// shell paths is rejected by the spa handler itself.
-	mux.HandleFunc("GET /", spa.ServeHTTP)
+	// Register the shell for ALL methods on "/": Go's mux rejects a
+	// method-scoped "GET /" alongside the "/assets/" subtree (panic:
+	// "matches fewer methods but more general path"), while the plain
+	// subtree is compatible — more specific patterns (/api/*, /healthz)
+	// still win, and non-GET shell requests get the spa handler's 405.
+	mux.Handle("/", spa)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
