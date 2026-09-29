@@ -5,11 +5,14 @@
 // volume, restart policy, linger) end-to-end. M4.3 fills in the real
 // PoS (auth, shifts, orders, payments, printer) on this same mux.
 //
-// Env (IF-03): POS_ADDR listen address. Default 0.0.0.0:8444 — the
+// Env (IF-03): POS_ADDR listen address. Default 127.0.0.1:8444 — the
 // container shares the host network (keep-id maps container root to
-// the unprivileged kcapps user), and only the M4.2 proxy (local
-// process) forwards :8443 → :8444. 8444 is NOT in the ruleset's
-// allow-list, so remote clients can only reach it through the proxy.
+// the unprivileged kcapps user) and ONLY the M4.2 apps proxy (a host
+// process) forwards :8443 → 127.0.0.1:8444. Loopback binding is
+// defense in depth: in the lab posture the anti-lockout rule accepts
+// everything from the mgmt subnet, so a 0.0.0.0 bind would be
+// reachable directly (observed live) — loopback closes that
+// regardless of posture.
 package main
 
 import (
@@ -41,7 +44,7 @@ func newServer(log *slog.Logger) http.Handler {
 func main() {
 	addr := os.Getenv("POS_ADDR")
 	if addr == "" {
-		addr = "0.0.0.0:8444"
+		addr = "127.0.0.1:8444" // loopback only — see the package comment
 	}
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
 

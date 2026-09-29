@@ -18,7 +18,7 @@ ExecStart=/usr/bin/podman run --name pos-cafe \
   --network=host \
   --userns=keep-id:uid=1000,gid=1000 \
   --volume /var/lib/kcportal/pos:/data \
-  --env POS_ADDR=0.0.0.0:8444 \
+  --env POS_ADDR=127.0.0.1:8444 \
   --restart-policy=no \
   --health-cmd "curl -fsS http://127.0.0.1:8444/healthz || exit 1" \
   --health-interval 30s --health-retries 3 \

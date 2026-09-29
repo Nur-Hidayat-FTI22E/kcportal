@@ -19,8 +19,7 @@ ContainerName=pos-cafe
 Network=host
 UserNS=keep-id:uid=1000,gid=1000
 Volume=/var/lib/kcportal/pos:/data
-Environment=POS_ADDR=0.0.0.0:8444
-Exec=pos-cafe
+Environment=POS_ADDR=127.0.0.1:8444
 HealthCmd=curl -fsS http://127.0.0.1:8444/healthz || exit 1
 HealthInterval=30s
 HealthRetries=3

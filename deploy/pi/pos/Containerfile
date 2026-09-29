@@ -24,7 +24,7 @@
 FROM scratch
 COPY bin/pos-cafe /usr/local/bin/pos-cafe
 COPY passwd /etc/passwd
-ENV POS_ADDR=0.0.0.0:8444
+ENV POS_ADDR=127.0.0.1:8444
 VOLUME /data
 USER 1000:1000
 EXPOSE 8444
