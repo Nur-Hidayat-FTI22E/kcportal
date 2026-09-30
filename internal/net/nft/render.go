@@ -271,9 +271,17 @@ table inet kcp_zones {
     iifname "{{ .LANBridge }}" meta mark set ether saddr map @mac_zone   # no entry -> stays 0x00 (Waiting)
 {{- end }}
     meta mark set iifname map @vlan_zone
+{{- if .SetupMode }}
+    # setup mode (DD-15): mac_ip4/mac_ip6 stay empty (no device-derived
+    # identity), so the anti-spoof demotion below MUST be skipped — with an
+    # empty set it would demote EVERY guest packet to 0x00 (Waiting) right
+    # after DHCP, killing DNS/HTTP/ICMP and the portal with it (observed
+    # 2026-10-01: ARP + lease fine, zero post-DHCP reachability).
+{{- else }}
     # anti-spoof binding (SEC-012); 0.0.0.0 = DHCP discover, :: / fe80::/10 = DAD/ND
     iifname { "{{ .LANBridge }}", "{{ .GuestBridge }}" } ether type ip  ip saddr != 0.0.0.0 ether saddr . ip saddr != @mac_ip4 meta mark set 0x00
     iifname { "{{ .LANBridge }}", "{{ .GuestBridge }}" } ether type ip6 ip6 saddr != { ::/128, fe80::/10 } ether saddr . ip6 saddr != @mac_ip6 meta mark set 0x00
+{{- end }}
   }
 }
 

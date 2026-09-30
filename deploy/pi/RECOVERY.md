@@ -70,3 +70,32 @@ ip -br a show br-guest   # 10.20.3.1/24
 cukup untuk menyatakan portal sehat — cek lapisan AP-nya juga
 (hostapd_cli status / all_sta), karena kegagalan tinggal di unit
 anak yang crash-loop.
+
+## Lanjutan insiden (same night): tamu dapat IP tapi portal tak terjangkau
+
+Setelah bridge pulih, HP dapat lease `10.20.3.x` tapi tetap tidak bisa
+membuka apa pun. Diagnosa via tamu sintetis (netns+veth di br-guest,
+`/tmp/gsim-*.sh` di Pi) + `nft monitor trace` menemukan DUA bug lagi:
+
+1. **Anti-spoof demotion di setup mode** (SEC-012): rule
+   `ip saddr . ether saddr != @mac_ip4 → mark 0x00` tetap dirender
+   padahal `mac_ip4` kosong di `-setup` (DD-15 skip bindings). Semua
+   paket tamu pasca-DHCP ter-demotion ke mark Waiting dan dibuang
+   `input_waiting` (drop). DHCP lolos hanya karena src `0.0.0.0`
+   dikecualikan. Fix: rule hanya dirender di mode produksi penuh
+   (`render.go` + golden setup + test regresi
+   `TestSetupModeSkipsAntiSpoofDemotion`).
+
+2. **Default `-state` CLI salah**: `kcportald -approve` menulis ke
+   `/data/kcportal/state.db` (default lama) sementara daemon baca
+   `/var/lib/kcportal/state.db` — approve/revoke CLI "sukses" tapi
+   `authed_guests` tidak pernah berubah. Fix: default disamakan dengan
+   unit systemd.
+
+Verifikasi akhir via gsim (semua PASS): DNS by-name → probe 302 →
+portal shell 200 → approve masuk `authed_guests` → HTTP 200 asli
+lewat masquerade → revoke → kembali terkunci.
+
+**Teknik diagnosa yang terbukti** (pakai lagi kalau perlu): tamu
+sintetis netns+veth + `nft monitor trace` + tcpdump br-guest/eth0
+bersamaan — memisahkan masalah L2/L3/nft/uplink tanpa perlu HP.

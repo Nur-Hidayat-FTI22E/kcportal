@@ -45,7 +45,11 @@ import (
 
 func main() {
 	cfgPath := flag.String("config", "/etc/kcportal/app.yaml", "path to app.yaml")
-	statePath := flag.String("state", "/data/kcportal/state.db", "path to state.db")
+	// Match the systemd unit (StateDirectory=kcportal → /var/lib/kcportal):
+	// a mismatched default made the ops CLI write guest sessions to a DIFFERENT
+	// state.db than the running daemon reads — approve/revoke looked successful
+	// while authed_guests never changed (observed 2026-10-01).
+	statePath := flag.String("state", "/var/lib/kcportal/state.db", "path to state.db")
 	nftDir := flag.String("nft-dir", "/run/kcportal", "directory for the generated kcp.nft (tmpfs, PD-4)")
 	devMode := flag.Bool("dev", false, "dry-run nft (no kernel ruleset) and use the in-memory NetCtl mock — no root or Pi required")
 	setupMode := flag.Bool("setup", false, "DD-15 setup mode: br-lan is the admin plane, device state is not applied")

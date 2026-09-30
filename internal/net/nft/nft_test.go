@@ -107,6 +107,25 @@ func TestRenderGoldenSetupMode(t *testing.T) {
 	}
 }
 
+// TestSetupModeSkipsAntiSpoofDemotion: regression for the 2026-10-01
+// outage — in setup mode mac_ip4/mac_ip6 stay empty (DD-15), so the
+// SEC-012 demotion rules would send EVERY post-DHCP guest packet to
+// mark 0x00 and the input gate's input_waiting chain would drop it
+// (DNS/HTTP/ICMP dead, portal unreachable). Setup mode must not emit
+// them; full production mode must.
+func TestSetupModeSkipsAntiSpoofDemotion(t *testing.T) {
+	p := cafePlan()
+	p.SetupMode = true
+	setup := mustRender(t, p)
+	if strings.Contains(setup, "saddr != @mac_ip4") {
+		t.Error("setup mode renders the anti-spoof demotion with an empty mac_ip4 set — guest traffic dies after DHCP")
+	}
+	prod := mustRender(t, cafePlan())
+	if !strings.Contains(prod, "saddr != @mac_ip4") {
+		t.Error("production mode lost the anti-spoof demotion")
+	}
+}
+
 // TestRenderDeterministic: same plan twice -> byte-identical output,
 // even with map-iteration-order-sensitive content (element lists are
 // precomputed in plan order).
