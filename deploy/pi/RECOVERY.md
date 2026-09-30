@@ -99,3 +99,11 @@ lewat masquerade → revoke → kembali terkunci.
 **Teknik diagnosa yang terbukti** (pakai lagi kalau perlu): tamu
 sintetis netns+veth + `nft monitor trace` + tcpdump br-guest/eth0
 bersamaan — memisahkan masalah L2/L3/nft/uplink tanpa perlu HP.
+
+**Validasi device asli (2026-10-01, malam) — SIKLUS PENUH PASS**:
+HP + laptop sungguhan: connect → status "perlu masuk" + portal muncul
+otomatis → redeem voucher → internet penuh → `kcportald -revoke <mac>`
+(+ drift loop ≤30 s) → terkunci lagi → connect ulang → portal muncul
+kembali. Voucher uji di state.db: `TEST2026` (8 mnt) & `8UM3N8QDWA`
+(90 mnt) — disisipkan via sqlite langsung karena endpoint admin untuk
+membuat voucher BELUM ADA (backlog: POST /api/v1/vouchers).
