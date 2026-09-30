@@ -139,6 +139,39 @@ func TestVoucherCreateList(t *testing.T) {
 	}
 }
 
+func TestVoucherDelete(t *testing.T) {
+	_, h := newTestServer(t)
+	rec := doJSON(t, h, "POST", "/api/v1/vouchers", "test-token-1",
+		`{"count":2,"duration_s":600,"max_uses":1}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create: %d %s", rec.Code, rec.Body.String())
+	}
+	var created struct {
+		Codes []string `json:"codes"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	code := created.Codes[0]
+
+	if rec = doJSON(t, h, "DELETE", "/api/v1/vouchers/"+code, "test-token-1", ""); rec.Code != http.StatusOK {
+		t.Fatalf("delete: %d %s", rec.Code, rec.Body.String())
+	}
+	rec = doJSON(t, h, "GET", "/api/v1/vouchers", "test-token-1", "")
+	if strings.Contains(rec.Body.String(), code) {
+		t.Fatal("deleted voucher must not appear in list")
+	}
+	if rec = doJSON(t, h, "DELETE", "/api/v1/vouchers/"+code, "test-token-1", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("second delete -> %d, want 404", rec.Code)
+	}
+	if rec = doJSON(t, h, "DELETE", "/api/v1/vouchers/NOPE123456", "test-token-1", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown code -> %d, want 404", rec.Code)
+	}
+	if rec = doJSON(t, h, "DELETE", "/api/v1/vouchers/"+created.Codes[1], "", ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no token -> %d, want 401", rec.Code)
+	}
+}
+
 func TestLoadTokenCreatesOnceAndReuses(t *testing.T) {
 	db := storetest.Open(t)
 	tok1, created, err := LoadToken(db)

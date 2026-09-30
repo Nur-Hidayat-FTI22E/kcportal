@@ -193,6 +193,15 @@ Codes are server-generated (10 characters, unambiguous alphabet). Each
 redeem opens one session for `duration_s`; a voucher allows `max_uses`
 redemptions total.
 
+Delete a voucher (housekeeping — removes the code, already-started
+sessions keep their own expiry):
+
+```sh
+curl -X DELETE http://127.0.0.1:8083/api/v1/vouchers/GPC795A3RT \
+  -H "Authorization: Bearer $TOKEN"
+# → {"ok":true,"deleted":"GPC795A3RT"}   (404 if the code is unknown)
+```
+
 ### Session control
 
 ```sh

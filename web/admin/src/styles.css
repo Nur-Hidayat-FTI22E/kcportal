@@ -178,6 +178,10 @@ select {
   color: var(--muted);
 }
 
+.error {
+  color: var(--danger);
+}
+
 .center {
   display: grid;
   place-items: center;

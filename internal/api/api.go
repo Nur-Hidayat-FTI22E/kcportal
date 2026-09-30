@@ -19,6 +19,7 @@
 //	GET  /api/v1/audit?limit=         hash-chained rows (read-only)
 //	POST /api/v1/vouchers             {count, duration_s, max_uses}
 //	GET  /api/v1/vouchers
+//	DELETE /api/v1/vouchers/{code}    remove one voucher (housekeeping)
 //	GET  /api/v1/network/wan          posture view (setup wizard, read-only)
 //	POST /api/v1/network/wan          {wan:{mode}, iface} — records intent (no kernel writes)
 //
@@ -98,6 +99,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/audit", s.wrap(s.handleAudit))
 	mux.HandleFunc("POST /api/v1/vouchers", s.wrap(s.handleCreateVouchers))
 	mux.HandleFunc("GET /api/v1/vouchers", s.wrap(s.handleListVouchers))
+	mux.HandleFunc("DELETE /api/v1/vouchers/{code}", s.wrap(s.handleDeleteVoucher))
 	// Setup wizard (M3, §7.2): read-only posture view + recorded WAN
 	// posture. Kernel-facing reconfig stays with kcp-net-apply.sh.
 	mux.HandleFunc("GET /api/v1/network/wan", s.wrap(s.HandleWanGET))
@@ -443,6 +445,24 @@ func (s *Server) handleListVouchers(w http.ResponseWriter, r *http.Request) (any
 		return nil, err
 	}
 	return map[string]any{"vouchers": rows}, nil
+}
+
+// handleDeleteVoucher removes a single voucher code (admin housekeeping:
+// cleaning up test codes or revoking an unused batch). Unknown codes
+// return 404 so typos are visible in the GUI/curl output.
+func (s *Server) handleDeleteVoucher(w http.ResponseWriter, r *http.Request) (any, error) {
+	code := r.PathValue("code")
+	if code == "" {
+		return nil, fail(http.StatusBadRequest, "voucher code is required")
+	}
+	if err := store.DeleteVoucher(s.DB, code); err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, fail(http.StatusNotFound, fmt.Sprintf("voucher %q not found", code))
+		}
+		return nil, err
+	}
+	s.Log.Info("voucher deleted", "code", code)
+	return map[string]any{"ok": true, "deleted": code}, nil
 }
 
 // newVoucherCode mints a human-friendly 10-char code (no 0/O/1/I/L).

@@ -431,6 +431,20 @@ func ListVouchers(db *sql.DB) ([]Voucher, error) {
 	return out, rows.Err()
 }
 
+// DeleteVoucher removes one voucher code (admin housekeeping). It
+// returns ErrNotFound when the code does not exist. Sessions already
+// started from this voucher keep their own expires_at.
+func DeleteVoucher(db *sql.DB, code string) error {
+	res, err := db.Exec(`DELETE FROM vouchers WHERE code = ?`, code)
+	if err != nil {
+		return fmt.Errorf("store: delete voucher %s: %w", code, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // Voucher is one vouchers row (read model).
 type Voucher struct {
 	Code        string

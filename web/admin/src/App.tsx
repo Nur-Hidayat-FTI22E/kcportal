@@ -409,6 +409,7 @@ function VouchersTab() {
   const [minutes, setMinutes] = useState(90);
   const [maxUses, setMaxUses] = useState(1);
   const [fresh, setFresh] = useState<string[]>([]);
+  const [delErr, setDelErr] = useState("");
   const create = async () => {
     try {
       const out = await api.post<{ codes: string[] }>(endpoints.vouchers, {
@@ -420,6 +421,20 @@ function VouchersTab() {
       await reload();
     } catch (e) {
       alert(e instanceof Error ? e.message : e);
+    }
+  };
+  // Hapus = housekeeping (kode uji / voucher tak terpakai). Konfirmasi
+  // dulu supaya salah klik tidak langsung menghapus kode (irreversible).
+  // Gagal ditampilkan inline di bawah tabel supaya terbaca sambil
+  // melihat daftar voucher, bukan lewat alert.
+  const del = async (code: string) => {
+    if (!window.confirm(`Hapus voucher ${code}? Tindakan ini tidak bisa dibatalkan.`)) return;
+    setDelErr("");
+    try {
+      await api.del(endpoints.deleteVoucher(code));
+      await reload();
+    } catch (e) {
+      setDelErr(e instanceof Error ? e.message : String(e));
     }
   };
   return (
@@ -455,6 +470,7 @@ function VouchersTab() {
               <th>Pakai</th>
               <th>Dibuat</th>
               <th>Kedaluwarsa</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -469,10 +485,16 @@ function VouchersTab() {
                 </td>
                 <td>{fmtTime(v.CreatedAt)}</td>
                 <td>{fmtTime(v.ExpiresAt)}</td>
+                <td>
+                  <button className="danger" onClick={() => del(v.Code)}>
+                    Hapus
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
+        {delErr && <p className="error">⚠ Hapus gagal: {delErr}</p>}
         {(data?.vouchers ?? []).length === 0 && <p className="muted">Belum ada voucher.</p>}
       </Card>
     </>

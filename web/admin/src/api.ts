@@ -45,6 +45,7 @@ export const api = {
   get: <T>(path: string) => call<T>("GET", path),
   post: <T>(path: string, body: unknown) => call<T>("POST", path, body),
   put: <T>(path: string, body: unknown) => call<T>("PUT", path, body),
+  del: <T>(path: string) => call<T>("DELETE", path),
 };
 
 // --- response shapes (mirrors internal/api handlers) ---
@@ -124,6 +125,7 @@ export const endpoints = {
   confirm: "/api/v1/changes/confirm",
   audit: (limit = 100) => `/api/v1/audit?limit=${limit}`,
   vouchers: "/api/v1/vouchers",
+  deleteVoucher: (code: string) => `/api/v1/vouchers/${encodeURIComponent(code)}`,
   wan: "/api/v1/network/wan",
   doh: "/api/v1/network/doh",
 };

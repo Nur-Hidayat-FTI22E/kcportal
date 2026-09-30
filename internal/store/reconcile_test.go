@@ -205,3 +205,39 @@ func TestAuditChainLinks(t *testing.T) {
 		t.Fatal("audit chain broken: row 2 prev_hash != row 1 hash")
 	}
 }
+
+func TestDeleteVoucher(t *testing.T) {
+	db := openSeeded(t)
+	now := time.Unix(1790798553, 0)
+	if err := CreateVouchers(db, []string{"DELME01", "KEEP0001"}, 15*time.Minute, 1, time.Time{}, now); err != nil {
+		t.Fatalf("CreateVouchers: %v", err)
+	}
+	if _, err := RedeemVoucher(db, "DELME01", now.Add(time.Minute)); err != nil {
+		t.Fatalf("RedeemVoucher: %v", err)
+	}
+	// Deleting a used voucher must work: started sessions keep their own
+	// expires_at, so removing the code only blocks future redemptions.
+	if err := DeleteVoucher(db, "DELME01"); err != nil {
+		t.Fatalf("DeleteVoucher: %v", err)
+	}
+	if _, err := RedeemVoucher(db, "DELME01", now.Add(2*time.Minute)); err != nil {
+		if !errors.Is(err, ErrNotFound) {
+			t.Fatalf("redeem after delete: %v", err)
+		}
+	} else {
+		t.Fatal("redeem after delete must fail")
+	}
+	if err := DeleteVoucher(db, "KEEP0001"); err != nil {
+		t.Fatalf("DeleteVoucher unused: %v", err)
+	}
+	if err := DeleteVoucher(db, "KEEP0001"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("second delete = %v, want ErrNotFound", err)
+	}
+	vs, err := ListVouchers(db)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(vs) != 0 {
+		t.Fatalf("vouchers left = %v", vs)
+	}
+}
