@@ -114,14 +114,15 @@ sudo deploy/pi/kcp-net-apply.sh --keep-eth0
 sudo systemctl enable --now kcportald          # production posture
 #   or: go run ./cmd/kcportald -dev            # laptop dry-run
 
-# 3. Admin API token (shown once)
+# 3. Admin API token (printed once)
 sudo kcportald -api-token
-ssh -L 8083:127.0.0.1:8083 pi@<pi>             # then open http://127.0.0.1:8083
+# 4. Open the admin GUI over an SSH tunnel (loopback-only listener)
+ssh -N -L 18083:127.0.0.1:8083 kotacloud-captive@<pi-ip>
+#    then browse http://localhost:18083
 ```
 
-Guests join the portal SSID, open any HTTP site, get the consent page,
-and are online after accepting. Devices can also be approved per-MAC
-from the admin GUI (zones: admin/pos/guest).
+Day-to-day operation (GUI access, vouchers, session control, health
+checks) is covered in the [Operating guide](#operating-guide) below.
 
 ### PoS App Pack
 
@@ -135,6 +136,90 @@ sudo deploy/pi/pos/verify-pos.sh               # acceptance: 14 checks + power-c
 Full operational details (printer wiring for USB and LAN modes,
 cashier browser onboarding, binary update flow) are in
 [`deploy/pi/pos/README.md`](deploy/pi/pos/README.md).
+
+## Operating guide
+
+### Admin GUI & API
+
+The admin listener is **loopback-only by design** (`127.0.0.1:8083`) —
+it is never exposed to the LAN, so reach it through an SSH tunnel:
+
+```sh
+ssh -N -L 18083:127.0.0.1:8083 kotacloud-captive@<pi-ip>
+# open http://localhost:18083 and paste the bearer token
+```
+
+`sudo kcportald -api-token` prints the token (generated on first boot
+into `state.db` settings). The browser stores it locally; every API
+call re-authenticates with it.
+
+| Tab | Purpose |
+|---|---|
+| Wizard | WAN posture view (recorded, applied at next boot) |
+| Devices | approve / block detected devices per zone (MAC-based) |
+| Guests | live guest sessions with one-click revoke |
+| Voucher | generate vouchers, track usage |
+| Zones | zone policy edits (risky → rides commit-confirm) |
+| Audit | hash-chained, tamper-evident action log |
+
+### Guest experience (verified end-to-end on real devices)
+
+1. Join the guest SSID (`kotacloud-test`, open network) — the OS shows
+   "sign in to network" and **pops the portal automatically** (captive
+   probe 302). Opening any plain-HTTP site redirects to the portal too.
+2. Accept the terms (marketing optional) **or** redeem a voucher → the
+   session opens within seconds (`authed_guests` + the 30 s drift loop).
+3. Internet works for the session duration. Expiry or revocation locks
+   the device again; reconnecting reopens the portal.
+
+DNS is pinned to the venue resolver for guests (DoH/DoT bootstrap IPs
+and port 853 are dropped), so devices cannot slip past the portal via
+encrypted DNS.
+
+### Vouchers
+
+GUI: **Voucher** tab → jumlah / durasi (menit) / maks. pakai →
+**Generate**. New codes appear under the form and in the table.
+API equivalent:
+
+```sh
+curl -X POST http://127.0.0.1:8083/api/v1/vouchers \
+  -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"count":2,"duration_s":1800,"max_uses":1}'
+# → {"ok":true,"codes":["GPC795A3RT","..."]}
+```
+
+Codes are server-generated (10 characters, unambiguous alphabet). Each
+redeem opens one session for `duration_s`; a voucher allows `max_uses`
+redemptions total.
+
+### Session control
+
+```sh
+sudo kcportald -approve aa:bb:cc:dd:ee:ff   # grant a 60-minute session
+sudo kcportald -revoke  aa:bb:cc:dd:ee:ff   # close all sessions for that MAC
+```
+
+Both go through state.db + the drift loop (≤30 s): the MAC leaves the
+kernel gate and the radio deauth is best-effort. The **Guests** GUI tab
+does the same per device. Legacy sessions simply expire.
+
+### Health & recovery cheat sheet
+
+```sh
+systemctl is-active kcportal-netsetup kcportald hostapd@kcportald dnsmasq-kcp
+hostapd_cli -p /run/kcportal/hostapd -i wlan0 status | grep -E 'state|freq'
+ip -br a show br-guest                 # 10.20.3.1/24 must be present
+sudo nft -f /run/kcportal/last-good.nft   # emergency ruleset rollback
+```
+
+Bridges, gateway addresses and IP forwarding re-apply at **every boot**
+via `kcportal-netsetup.service`; if the guest SSID is ever missing
+after a reboot, a failing `kcportal-netsetup` is the first suspect
+(`systemctl status kcportal-netsetup`). The full outage post-mortem and
+a synthetic-guest diagnostic technique (netns + veth + `nft monitor
+trace`, no phone required) are in
+[`deploy/pi/RECOVERY.md`](deploy/pi/RECOVERY.md).
 
 ## Repository layout
 
@@ -178,7 +263,10 @@ docs/M4-plan.md        PoS App Pack plan with live evidence
 
 Verification: `go test -race ./...` (all green), golden-file ruleset
 tests, live acceptance on the Pi (`deploy/pi/pos/verify-pos.sh`,
-14 checks) and per-milestone evidence in `docs/M4-plan.md`.
+14 checks) and per-milestone evidence in `docs/M4-plan.md`. The full
+guest-portal cycle was validated on **real devices** (2026-10-01):
+connect → OS portal auto-open → voucher → internet → revoke → locked
+again (see `deploy/pi/RECOVERY.md`).
 
 ## Device notes (Pi 5 / CYW43455)
 
