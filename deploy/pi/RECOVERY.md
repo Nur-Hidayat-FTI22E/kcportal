@@ -105,5 +105,8 @@ HP + laptop sungguhan: connect → status "perlu masuk" + portal muncul
 otomatis → redeem voucher → internet penuh → `kcportald -revoke <mac>`
 (+ drift loop ≤30 s) → terkunci lagi → connect ulang → portal muncul
 kembali. Voucher uji di state.db: `TEST2026` (8 mnt) & `8UM3N8QDWA`
-(90 mnt) — disisipkan via sqlite langsung karena endpoint admin untuk
-membuat voucher BELUM ADA (backlog: POST /api/v1/vouchers).
+(90 mnt) — TEST2026 disisipkan via sqlite langsung SEBELUM diketahui
+bahwa `POST /api/v1/vouchers` + form "Generate voucher" di tab Voucher
+admin GUI sudah ada sejak M3 dan terverifikasi live (200 OK, kode
+di-generate server-side). Jadi untuk voucher berikutnya cukup pakai
+GUI/API — tidak perlu sqlite manual lagi.
