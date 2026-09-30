@@ -1,0 +1,44 @@
+# kcportal-netsetup.service — boot-time interface setup (idempotent).
+#
+# WHY THIS EXISTS (outage 2026-09-30 17:51, fixed 2026-10-01):
+# kcp-net-apply.sh was run once by hand. Bridges and gateway IPs lived
+# only in kernel memory, so the reboot wiped them. kcportald is
+# fail-closed: with br-lan/br-guest missing it skipped Wi-Fi/DHCP
+# rendering entirely, hostapd@kcportald + dnsmasq-kcp crash-looped on
+# their ExecStartPre `test -f` for ~10,000 restarts, and the guest SSID
+# was silently down (devices "connect" to nothing). This unit re-applies
+# the same reviewed script at every boot, BEFORE kcportald starts.
+#
+# The script itself is idempotent and reviewed (kcp-net-apply.sh), so
+# re-running it at boot is safe: it converges to the same state.
+#
+# Install (Pi):
+#   sudo install -m 0644 deploy/pi/kcportal-netsetup.service \
+#     /etc/systemd/system/kcportal-netsetup.service
+#   sudo install -m 0755 deploy/pi/kcp-net-apply.sh \
+#     /usr/local/sbin/kcp-net-apply.sh
+#   sudo systemctl daemon-reload && sudo systemctl enable kcportal-netsetup
+#
+# Run now / inspect:
+#   sudo systemctl start kcportal-netsetup
+#   systemctl status kcportal-netsetup --no-pager
+#   journalctl -u kcportal-netsetup -b --no-pager
+
+[Unit]
+Description=KotaCloud Portal boot-time interface setup (bridges + gateway IPs)
+# Only needs the interface names to exist — no IP connectivity required.
+DefaultDependencies=no
+After=systemd-modules-load.service
+Before=network-pre.target
+Wants=network-pre.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/kcp-net-apply.sh --keep-eth0
+RemainAfterExit=yes
+# Network namespace + links manipulation needs real capabilities; the
+# script is root-owned 0755 and reviewed by hand (DD-15: never kcportald).
+ExecStartPre=/usr/bin/test -x /usr/local/sbin/kcp-net-apply.sh
+
+[Install]
+WantedBy=multi-user.target

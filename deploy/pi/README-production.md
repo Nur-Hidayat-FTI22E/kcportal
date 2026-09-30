@@ -40,6 +40,13 @@ sudo systemctl daemon-reload
 ```sh
 sudo sh /tmp/kcp-net-apply.sh --keep-eth0
 ip -br a show br-lan br-guest     # verifikasi 10.20.1.1, 10.20.2.1, 10.20.99.1, 10.20.3.1
+
+# Persistenkan: jalankan ulang otomatis tiap boot. Tanpa ini bridges
+# hilang saat reboot dan kcportald fail-closed (render AP/DHCP dilewati,
+# hostapd + dnsmasq crash-loop, SSID mati diam-diam).
+sudo install -m 0755 /tmp/kcp-net-apply.sh /usr/local/sbin/kcp-net-apply.sh
+sudo install -m 0644 /tmp/kcportal-netsetup.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now kcportal-netsetup
 ```
 
 SSH masih aman: eth0 tidak disentuh.

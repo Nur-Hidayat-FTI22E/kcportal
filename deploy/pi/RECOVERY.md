@@ -33,3 +33,40 @@ Flush ruleset berhasil (port 22 langsung terbuka), tapi baris
 Pelajaran: kalau harus menambah kunci dari konsol, validasi langsung
 setelah paste dengan `ssh-keygen -lf ~/.ssh/authorized_keys`; kalau
 tertulis "is not a valid public key", paste-nya korup.
+
+## Catatan pemulihan 2026-10-01 — SSID mati diam-diam pasca reboot
+
+**Gejala**: device "terhubung" ke `kotacloud-test` tapi tidak pernah
+dapat IP, portal tidak muncul, neverssl.com gagal. Dari Pi: `wlan0
+DOWN`, `br-guest` tidak ada, `hostapd@kcportald` + `dnsmasq-kcp`
+crash-loop (`restart counter 10.600+`), statusnya "activating" —
+kelihatan sehat dari daftar service tapi AP sebenarnya mati.
+
+**Akar**: bridges + alamat gateway hanya dibuat SEKALI oleh
+`kcp-net-apply.sh` (state kernel, tidak persisten). Reboot 2026-09-30
+17:51 menghapusnya; kcportald fail-closed (benar) melewatkan render
+hostapd/dnsmasq sehingga ExecStartPre `test -f` kedua unit gagal
+selamanya. Bonus bug: registrasi task render hanya dicek bridges saat
+startup, jadi bridge yang dibuat belakangan tidak pernah diproses —
+sudah diperbaiki (probe ulang tiap tick 30 dtk, self-healing).
+
+**Perbaikan permanen** (sudah diterapkan di Pi):
+
+```sh
+sudo install -m 0755 deploy/pi/kcp-net-apply.sh /usr/local/sbin/kcp-net-apply.sh
+sudo install -m 0644 deploy/pi/kcportal-netsetup.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now kcportal-netsetup
+```
+
+**Verifikasi cepat setelah reboot** (semua harus "active" + AP ENABLED):
+
+```sh
+systemctl is-active kcportal-netsetup kcportald hostapd@kcportald dnsmasq-kcp
+hostapd_cli -p /run/kcportal/hostapd -i wlan0 status | grep -E "state|freq"
+ip -br a show br-guest   # 10.20.3.1/24
+```
+
+**Pelajaran monitoring**: `systemctl is-active kcportald` saja TIDAK
+cukup untuk menyatakan portal sehat — cek lapisan AP-nya juga
+(hostapd_cli status / all_sta), karena kegagalan tinggal di unit
+anak yang crash-loop.

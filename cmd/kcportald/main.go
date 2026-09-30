@@ -457,97 +457,105 @@ func main() {
 		}
 	})
 	// Production runtime config (M2 wiring, real mode only): bridges are
-	// the operator's one-time job (deploy/pi/kcp-net-apply.sh — the step
-	// able to cut management access stays manual). Once they exist, this
-	// task renders hostapd.conf + dnsmasq.conf + hosts.d from state.db
+	// the operator's one-time job (deploy/pi/kcp-net-apply.sh, re-applied
+	// at every boot by kcportal-netsetup.service — the step able to cut
+	// management access stays manual). Once the bridges exist, this task
+	// renders hostapd.conf + dnsmasq.conf + hosts.d from state.db
 	// deterministically, rewrites only on drift, and reloads what it can.
 	if !*devMode {
-		if err := runtimecfg.RequireBridges(log); err != nil {
-			log.Warn("runtime config disabled — Wi-Fi/DHCP rendering skipped", "err", err)
-		} else {
-			sup.Add("ap-config-render", func(ctx context.Context) {
-				apply := func(reason string) {
-					// hostapd.conf: PSK dari staff_psk (produksi) atau env
-					// KCP_STAFF_PSK (lab bootstrap). Kosong keduanya = render
-					// dilewati, bukan config AP yang rusak.
-					psk, perr := store.GetSetting(db, "staff_psk")
-					if perr != nil || psk == "" {
-						psk = os.Getenv("KCP_STAFF_PSK")
-					}
-					// KCP_WIFI_BSS=single: documented fallback for radios
-					// whose firmware cannot run two concurrent APs (the Pi 5's
-					// CYW43455 reports #{ AP } <= 1 — DD-01 dual BSS fails with
-					// EBUSY). The surviving BSS is the guest portal one.
-					var hout []byte
-					var herr error
-					if os.Getenv("KCP_WIFI_BSS") == "single" {
-						hout, herr = runtimecfg.RenderHostapdSingleBSS(ssidOf(cfg.SSIDs, 1))
-					} else {
-						if psk == "" {
-							log.Warn("hostapd render skipped — no staff_psk setting / KCP_STAFF_PSK env yet")
-							goto dnsmasqRender
-						}
-						hout, herr = runtimecfg.RenderHostapd(ssidOf(cfg.SSIDs, 0), ssidOf(cfg.SSIDs, 1), psk)
-					}
-					// The ctrl_interface dir must pre-exist and be group-writable:
-					// the hostapd unit runs root:kcportal WITHOUT DAC_OVERRIDE,
-					// and /run/kcportal itself is 0755 kcportal-only.
-					if mkerr := os.MkdirAll(filepath.Join(*nftDir, "hostapd"), 0o770); mkerr != nil {
-						log.Warn("ctrl_interface dir create failed", "err", mkerr)
-					}
-					if herr != nil {
-						log.Warn("hostapd render failed", "err", err)
-						// 0640 group kcportal: the hostapd unit runs with
-						// Group=kcportal and a capability bounding set WITHOUT
-						// DAC_OVERRIDE, so root-only 0600 would be unreadable there.
-					} else if changed, err := writeFileIfChanged(filepath.Join(*nftDir, "hostapd.conf"), hout, 0o640); err != nil {
-						log.Warn("hostapd.conf write failed", "err", err)
-					} else if changed {
-						log.Info("hostapd.conf updated — restarting hostapd@kcportald", "reason", reason)
-						runtimecfg.RestartHostapd(log)
-					}
-				dnsmasqRender:
-					// dnsmasq.conf + hosts.d (§4.5): reservations flow through
-					// the inotify dir (no restart needed); pool-level conf
-					// changes restart dnsmasq-kcp below (polkit-pinned).
-					out, resv, err := runtimecfg.RenderDnsmasq(db, []string{"1.1.1.1", "9.9.9.9"}, map[int]string{1: "z1", 2: "z2"}, "12h")
-					if err != nil {
-						log.Warn("dnsmasq render failed", "err", err)
-						return
-					}
-					dnsDir := filepath.Join(*nftDir, "dnsmasq")
-					confChanged, err := writeFileIfChanged(filepath.Join(dnsDir, "dnsmasq.conf"), out, 0o640)
-					if err != nil {
-						log.Warn("dnsmasq.conf write failed", "err", err)
-						return
-					}
-					resvChanged, err := dhcp.WriteReservations(filepath.Join(dnsDir, "hosts.d"), resv)
-					if err != nil {
-						log.Warn("hosts.d sync failed", "err", err)
-						return
-					}
-					if confChanged {
-						log.Info("dnsmasq.conf updated — restarting dnsmasq to apply pool changes", "reason", reason)
-						runtimecfg.RestartDnsmasq(log)
-					} else if resvChanged > 0 {
-						// Per-file hosts.d changes ride dnsmasq's inotify — the
-						// restart would be redundant; a log line is the audit trail.
-						log.Info("hosts.d reservations updated (dnsmasq inotify applies them)", "files", resvChanged, "reason", reason)
-					}
+		sup.Add("ap-config-render", func(ctx context.Context) {
+			apply := func(reason string) {
+				// Fail-closed bridge probe on EVERY pass, not just startup:
+				// kcportald can win the boot race against kcportal-netsetup
+				// (or the operator creates bridges late by hand). The
+				// 2026-09-30 outage was exactly this — bridges vanished on
+				// reboot, the startup-only check silently disabled rendering
+				// for the whole uptime, and hostapd/dnsmasq crash-looped on
+				// their missing configs while the daemon looked healthy.
+				if err := runtimecfg.RequireBridges(log); err != nil {
+					log.Warn("bridges missing — Wi-Fi/DHCP render skipped", "err", err)
+					return
 				}
-				apply("startup")
-				t := time.NewTicker(30 * time.Second) // same cadence as drift-reapply
-				defer t.Stop()
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					case <-t.C:
-						apply("periodic")
-					}
+				// hostapd.conf: PSK dari staff_psk (produksi) atau env
+				// KCP_STAFF_PSK (lab bootstrap). Kosong keduanya = render
+				// dilewati, bukan config AP yang rusak.
+				psk, perr := store.GetSetting(db, "staff_psk")
+				if perr != nil || psk == "" {
+					psk = os.Getenv("KCP_STAFF_PSK")
 				}
-			})
-		}
+				// KCP_WIFI_BSS=single: documented fallback for radios
+				// whose firmware cannot run two concurrent APs (the Pi 5's
+				// CYW43455 reports #{ AP } <= 1 — DD-01 dual BSS fails with
+				// EBUSY). The surviving BSS is the guest portal one.
+				var hout []byte
+				var herr error
+				if os.Getenv("KCP_WIFI_BSS") == "single" {
+					hout, herr = runtimecfg.RenderHostapdSingleBSS(ssidOf(cfg.SSIDs, 1))
+				} else {
+					if psk == "" {
+						log.Warn("hostapd render skipped — no staff_psk setting / KCP_STAFF_PSK env yet")
+						goto dnsmasqRender
+					}
+					hout, herr = runtimecfg.RenderHostapd(ssidOf(cfg.SSIDs, 0), ssidOf(cfg.SSIDs, 1), psk)
+				}
+				// The ctrl_interface dir must pre-exist and be group-writable:
+				// the hostapd unit runs root:kcportal WITHOUT DAC_OVERRIDE,
+				// and /run/kcportal itself is 0755 kcportal-only.
+				if mkerr := os.MkdirAll(filepath.Join(*nftDir, "hostapd"), 0o770); mkerr != nil {
+					log.Warn("ctrl_interface dir create failed", "err", mkerr)
+				}
+				if herr != nil {
+					log.Warn("hostapd render failed", "err", err)
+					// 0640 group kcportal: the hostapd unit runs with
+					// Group=kcportal and a capability bounding set WITHOUT
+					// DAC_OVERRIDE, so root-only 0600 would be unreadable there.
+				} else if changed, err := writeFileIfChanged(filepath.Join(*nftDir, "hostapd.conf"), hout, 0o640); err != nil {
+					log.Warn("hostapd.conf write failed", "err", err)
+				} else if changed {
+					log.Info("hostapd.conf updated — restarting hostapd@kcportald", "reason", reason)
+					runtimecfg.RestartHostapd(log)
+				}
+			dnsmasqRender:
+				// dnsmasq.conf + hosts.d (§4.5): reservations flow through
+				// the inotify dir (no restart needed); pool-level conf
+				// changes restart dnsmasq-kcp below (polkit-pinned).
+				out, resv, err := runtimecfg.RenderDnsmasq(db, []string{"1.1.1.1", "9.9.9.9"}, map[int]string{1: "z1", 2: "z2"}, "12h")
+				if err != nil {
+					log.Warn("dnsmasq render failed", "err", err)
+					return
+				}
+				dnsDir := filepath.Join(*nftDir, "dnsmasq")
+				confChanged, err := writeFileIfChanged(filepath.Join(dnsDir, "dnsmasq.conf"), out, 0o640)
+				if err != nil {
+					log.Warn("dnsmasq.conf write failed", "err", err)
+					return
+				}
+				resvChanged, err := dhcp.WriteReservations(filepath.Join(dnsDir, "hosts.d"), resv)
+				if err != nil {
+					log.Warn("hosts.d sync failed", "err", err)
+					return
+				}
+				if confChanged {
+					log.Info("dnsmasq.conf updated — restarting dnsmasq to apply pool changes", "reason", reason)
+					runtimecfg.RestartDnsmasq(log)
+				} else if resvChanged > 0 {
+					// Per-file hosts.d changes ride dnsmasq's inotify — the
+					// restart would be redundant; a log line is the audit trail.
+					log.Info("hosts.d reservations updated (dnsmasq inotify applies them)", "files", resvChanged, "reason", reason)
+				}
+			}
+			apply("startup")
+			t := time.NewTicker(30 * time.Second) // same cadence as drift-reapply
+			defer t.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					apply("periodic")
+				}
+			}
+		})
 	}
 
 	// Wi-Fi control plane (IF-05a, MOD-WIFI): in production the hostapd

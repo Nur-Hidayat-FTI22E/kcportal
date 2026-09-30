@@ -42,6 +42,23 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now kcportald
 ```
 
+### Persistensi jaringan saat boot (wajib)
+
+Bridges (`br-lan`, `br-guest`) + alamat gateway dibuat oleh
+`kcp-net-apply.sh` dan TIDAK survive reboot. Pasang unit oneshot yang
+menjalankannya lagi tiap boot, sebelum kcportald:
+
+```bash
+sudo install -m 0755 deploy/pi/kcp-net-apply.sh /usr/local/sbin/kcp-net-apply.sh
+sudo install -m 0644 deploy/pi/kcportal-netsetup.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now kcportal-netsetup
+```
+
+Tanpa unit ini, setelah reboot kcportald fail-closed: render
+hostapd/dnsmasq dilewati, `hostapd@kcportald` + `dnsmasq-kcp`
+crash-loop, dan SSID mati diam-diam (insiden 2026-10-01, lihat
+RECOVERY.md).
+
 > `sshpass` hanya ada di workstation lab; di Pi sendiri tidak dibutuhkan.
 
 ## 3. Verifikasi
@@ -75,5 +92,6 @@ sudo nft -f /run/kcportal/last-good.nft
   butuh sd_notify ping yang belum diimplementasikan daemon.
 - `-dev` TIDAK dipakai di unit ini (Mock + DryRun hanya untuk debugging
   di workstation).
-- Dnsmasq/hostapd (M2) belum dilayani daemon; Wi-Fi dan DHCP masih
-  konfigurasi manual sampai milestone berikutnya.
+- Sejak M2, kcportald me-render `hostapd.conf`/`dnsmasq.conf` ke
+  `/run/kcportal` dari state.db dan me-restart unit pemiliknya saat
+  config berubah (polkit rule, verb restart saja).
